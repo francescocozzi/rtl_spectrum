@@ -44,7 +44,7 @@ class SDRHandler:
                 self.sdr.close()
             raise
 
-    def _configure_sdr(self):
+def _configure_sdr(self):
         if not self.sdr:
             return False
         
@@ -52,10 +52,19 @@ class SDRHandler:
             with self.sdr_lock:
                 self.sdr.sample_rate = self.data['sample_rate']
                 self.sdr.center_freq = self.data['center_freq']
+                
+                # Gestione gain dinamica basata sulla frequenza
                 if self.data['gain'] == 'auto':
-                    self.sdr.gain = 20
+                    if self.data['center_freq'] < 300e6:  # Per VHF
+                        self.sdr.gain = 15  # Gain più basso per VHF
+                    else:  # Per UHF
+                        self.sdr.gain = 20
                 else:
-                    self.sdr.gain = float(self.data['gain'])
+                    gain_value = float(self.data['gain'])
+                    # Limita il gain massimo in VHF
+                    if self.data['center_freq'] < 300e6:
+                        gain_value = min(gain_value, 30)
+                    self.sdr.gain = gain_value
                 
                 time.sleep(0.1)
             return True
@@ -79,15 +88,16 @@ class SDRHandler:
             print(f"Errore nel recupero del dispositivo: {e}")
             return False
 
-    def update_spectrum(self):
-        samples_size = 512  # Ridotto il numero di campioni
+def update_spectrum(self):
+        # Dimensione campioni variabile basata sulla frequenza
+        samples_size = 256 if self.data['center_freq'] < 300e6 else 512
+        
         while self.running:
             if not self.sdr:
                 time.sleep(0.1)
                 continue
                 
             try:
-                # Se è in corso un recupero, aspetta
                 if self.recovery_event.is_set():
                     time.sleep(0.1)
                     continue
@@ -95,24 +105,38 @@ class SDRHandler:
                 with self.sdr_lock:
                     samples = self.sdr.read_samples(samples_size)
                 
-                # Resetta il contatore errori se l'acquisizione è riuscita
                 self.consecutive_errors = 0
                 
-                # Normalizzazione e rimozione DC
+                # Normalizzazione migliorata per VHF
                 samples = samples - np.mean(samples)
-                samples = samples / (np.std(samples) + 1e-10)
+                if self.data['center_freq'] < 300e6:
+                    # Normalizzazione più aggressiva per VHF
+                    max_val = np.percentile(np.abs(samples), 95)  # Usa il 95° percentile invece del massimo
+                    samples = samples / (max_val + 1e-10)
+                else:
+                    samples = samples / (np.std(samples) + 1e-10)
                 
-                # FFT con finestra Blackman
-                window = np.blackman(len(samples))
+                # FFT con dimensione variabile
+                nfft = 512 if self.data['center_freq'] < 300e6 else 1024
+                
+                # Finestra variabile
+                if self.data['center_freq'] < 300e6:
+                    window = np.hamming(len(samples))  # Hamming per VHF
+                else:
+                    window = np.blackman(len(samples))  # Blackman per UHF
+                    
                 samples = samples * window
-                
-                nfft = 1024  # Ridotto per maggiore velocità
                 pxx = np.fft.fftshift(np.abs(np.fft.fft(samples, n=nfft)))
                 
-                # Conversione in dB e calibrazione
-                pxx_db = 20 * np.log10(pxx + 1e-10)
-                pxx_db = pxx_db - np.max(pxx_db)
-                pxx_db = np.clip(pxx_db, -70, 0)
+                # Range dinamico adattativo
+                if self.data['center_freq'] < 300e6:
+                    pxx_db = 20 * np.log10(pxx + 1e-10)
+                    pxx_db = pxx_db - np.max(pxx_db)
+                    pxx_db = np.clip(pxx_db, -60, 0)  # Range più stretto per VHF
+                else:
+                    pxx_db = 20 * np.log10(pxx + 1e-10)
+                    pxx_db = pxx_db - np.max(pxx_db)
+                    pxx_db = np.clip(pxx_db, -70, 0)
                 
                 freqs = self.sdr.center_freq + np.fft.fftshift(
                     np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
@@ -122,8 +146,11 @@ class SDRHandler:
                     if not hasattr(self, 'avg_buffer'):
                         self.avg_buffer = []
                     
+                    # Media mobile più veloce per VHF
+                    max_avg_samples = 2 if self.data['center_freq'] < 300e6 else 3
+                    
                     self.avg_buffer.append(pxx_db)
-                    if len(self.avg_buffer) > 3:
+                    if len(self.avg_buffer) > max_avg_samples:
                         self.avg_buffer.pop(0)
                     
                     pxx_db_avg = np.mean(self.avg_buffer, axis=0)
@@ -135,7 +162,6 @@ class SDRHandler:
                 print(f"Errore nell'acquisizione: {e}")
                 self.consecutive_errors += 1
                 
-                # Se ci sono troppi errori consecutivi, tenta il recupero
                 if self.consecutive_errors >= self.max_consecutive_errors:
                     self.recovery_event.set()
                     if self._recover_device():
@@ -147,7 +173,8 @@ class SDRHandler:
                 time.sleep(0.1)
                 continue
             
-            time.sleep(0.01)
+            # Sleep più breve per VHF
+            time.sleep(0.005 if self.data['center_freq'] < 300e6 else 0.01)
 
     def update_params(self, params):
         if not self.sdr:
