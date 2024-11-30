@@ -44,7 +44,7 @@ class SDRHandler:
                 self.sdr.close()
             raise
 
-def _configure_sdr(self):
+    def _configure_sdr(self):
         if not self.sdr:
             return False
         
@@ -88,7 +88,7 @@ def _configure_sdr(self):
             print(f"Errore nel recupero del dispositivo: {e}")
             return False
 
-def update_spectrum(self):
+    def update_spectrum(self):
         # Dimensione campioni variabile basata sulla frequenza
         samples_size = 256 if self.data['center_freq'] < 300e6 else 512
         
@@ -111,7 +111,7 @@ def update_spectrum(self):
                 samples = samples - np.mean(samples)
                 if self.data['center_freq'] < 300e6:
                     # Normalizzazione più aggressiva per VHF
-                    max_val = np.percentile(np.abs(samples), 95)  # Usa il 95° percentile invece del massimo
+                    max_val = np.percentile(np.abs(samples), 95)
                     samples = samples / (max_val + 1e-10)
                 else:
                     samples = samples / (np.std(samples) + 1e-10)
@@ -180,7 +180,6 @@ def update_spectrum(self):
         if not self.sdr:
             return False
             
-        # Non aggiornare i parametri durante il recupero
         if self.recovery_event.is_set():
             return False
             
@@ -209,10 +208,18 @@ def update_spectrum(self):
                 if 'gain' in params:
                     new_gain = params['gain']
                     if new_gain == 'auto':
-                        self.sdr.gain = 20
+                        # Gain auto basato sulla banda
+                        if self.data['center_freq'] < 300e6:
+                            self.sdr.gain = 15
+                        else:
+                            self.sdr.gain = 20
                     else:
                         new_gain = float(new_gain)
-                        new_gain = min(max(new_gain, 0), 40)
+                        # Limita il gain in VHF
+                        if self.data['center_freq'] < 300e6:
+                            new_gain = min(new_gain, 30)
+                        else:
+                            new_gain = min(max(new_gain, 0), 40)
                         self.sdr.gain = new_gain
                     self.data['gain'] = new_gain
                     print(f"Gain aggiornato a: {new_gain}")
