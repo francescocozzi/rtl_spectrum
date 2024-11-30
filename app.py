@@ -56,8 +56,7 @@ class SDRHandler:
             else:
                 self.sdr.gain = float(self.data['gain'])
             
-            self.sdr.reset_buffer()
-            time.sleep(0.1)
+            time.sleep(0.5)  # Pausa più lunga per stabilizzazione
             return True
         except Exception as e:
             print(f"Errore nella configurazione SDR: {e}")
@@ -111,6 +110,13 @@ class SDRHandler:
             try:
                 print(f"Ricevuti parametri: {params}")
                 
+                # Salva i parametri vecchi in caso di errore
+                old_params = {
+                    'center_freq': self.sdr.center_freq,
+                    'sample_rate': self.sdr.sample_rate,
+                    'gain': self.sdr.gain
+                }
+                
                 if 'center_freq' in params:
                     new_freq = float(params['center_freq'])
                     self.sdr.center_freq = new_freq
@@ -132,13 +138,24 @@ class SDRHandler:
                     self.data['gain'] = new_gain
                     print(f"Gain aggiornato a: {new_gain}")
                 
-                self.sdr.reset_buffer()
+                # Pausa più lunga per la stabilizzazione
+                time.sleep(0.5)
+                
+                # Pulisci il buffer della media mobile
                 if hasattr(self, 'avg_buffer'):
                     self.avg_buffer = []
                     
                 return True
                     
             except Exception as e:
+                # In caso di errore, prova a ripristinare i parametri precedenti
+                try:
+                    self.sdr.center_freq = old_params['center_freq']
+                    self.sdr.sample_rate = old_params['sample_rate']
+                    self.sdr.gain = old_params['gain']
+                except:
+                    pass  # Se il ripristino fallisce, continua comunque
+                    
                 print(f"Errore nell'aggiornamento dei parametri: {e}")
                 return False
 
