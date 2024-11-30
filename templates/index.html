@@ -126,32 +126,40 @@
                 });
         }
 
-        function updateParams() {
-            const params = {
-                center_freq: document.getElementById('centerFreq').value * 1e6,
-                sample_rate: document.getElementById('sampleRate').value * 1e6,
-                gain: document.getElementById('gain').value
-            };
-
-            fetch('/update_params', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(params)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showStatus('Parametri aggiornati con successo!');
-                } else {
-                    showStatus(data.message || 'Errore nell\'aggiornamento dei parametri', true);
-                }
-            })
-            .catch(error => {
-                showStatus('Errore di connessione', true);
-            });
-        }
+				function updateParams() {
+				    const centerFreq = document.getElementById('centerFreq').value;
+				    const sampleRate = document.getElementById('sampleRate').value;
+				    const gain = document.getElementById('gain').value;
+    
+				    const params = {
+				        center_freq: parseFloat(centerFreq) * 1e6,  // Converti MHz in Hz
+				        sample_rate: parseFloat(sampleRate) * 1e6,  // Converti MS/s in S/s
+				        gain: gain
+				    };
+    
+				    console.log('Invio parametri:', params);  // Debug
+    
+				    fetch('/update_params', {
+				        method: 'POST',
+				        headers: {
+				            'Content-Type': 'application/json',
+				        },
+				        body: JSON.stringify(params)
+				    })
+				    .then(response => response.json())
+				    .then(data => {
+				        console.log('Risposta:', data);  // Debug
+				        if (data.status === 'success') {
+				            showStatus('Parametri aggiornati con successo!');
+				        } else {
+				            showStatus(data.message || 'Errore nell\'aggiornamento dei parametri', true);
+				        }
+				    })
+				    .catch(error => {
+				        console.error('Errore:', error);  // Debug
+				        showStatus('Errore di connessione', true);
+				    });
+				}
 
         // Aggiorna il grafico ogni 100ms
         setInterval(updateChart, 100);

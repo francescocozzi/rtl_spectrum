@@ -146,42 +146,51 @@ class SDRHandler:
             
             time.sleep(0.05)  # Ridotto il tempo di sleep per aggiornamenti più frequenti
     
-    def update_params(self, params):
-        if not self.sdr:
-            return False
+def update_params(self, params):
+    if not self.sdr:
+        return False
             
-        with self.lock:
+    with self.lock:
+        try:
+            print(f"Ricevuti parametri: {params}")  # Debug
+            
+            # Aggiorna direttamente i parametri sull'SDR
+            if 'center_freq' in params:
+                new_freq = float(params['center_freq'])
+                self.sdr.center_freq = new_freq
+                self.data['center_freq'] = new_freq
+                print(f"Frequenza aggiornata a: {new_freq/1e6} MHz")
+                
+            if 'sample_rate' in params:
+                new_rate = float(params['sample_rate'])
+                self.sdr.sample_rate = new_rate
+                self.data['sample_rate'] = new_rate
+                print(f"Sample rate aggiornato a: {new_rate/1e6} MS/s")
+                
+            if 'gain' in params:
+                new_gain = params['gain']
+                if new_gain == 'auto':
+                    self.sdr.gain = 'auto'
+                else:
+                    self.sdr.gain = float(new_gain)
+                self.data['gain'] = new_gain
+                print(f"Gain aggiornato a: {new_gain}")
+            
+            # Reset del buffer dopo il cambio dei parametri
+            self.sdr.reset_buffer()
+            if hasattr(self, 'avg_buffer'):
+                self.avg_buffer = []
+                
+            return True
+                
+        except Exception as e:
+            print(f"Errore nell'aggiornamento dei parametri: {e}")
             try:
-                changed = False
-                if 'center_freq' in params:
-                    new_freq = float(params['center_freq'])
-                    if new_freq != self.data['center_freq']:
-                        self.data['center_freq'] = new_freq
-                        changed = True
-                        
-                if 'sample_rate' in params:
-                    new_rate = float(params['sample_rate'])
-                    if new_rate != self.data['sample_rate']:
-                        self.data['sample_rate'] = new_rate
-                        changed = True
-                        
-                if 'gain' in params:
-                    if params['gain'] != self.data['gain']:
-                        self.data['gain'] = params['gain']
-                        changed = True
-                
-                if changed:
-                    # Reset buffer media se cambiamo parametri
-                    self.avg_buffer = []
-                    success = self._configure_sdr()
-                    if not success:
-                        self._reset_device()
-                    return success
-                return True
-                
-            except Exception as e:
-                print(f"Errore nell'aggiornamento dei parametri: {e}")
-                return False
+                # Tentativo di recovery
+                self._configure_sdr()
+            except:
+                pass
+            return False
     
     def get_data(self):
         with self.lock:
