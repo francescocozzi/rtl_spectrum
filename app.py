@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, render_template, jsonify, request
 from rtlsdr import RtlSdr
 import numpy as np
@@ -32,11 +31,13 @@ class SDRHandler:
             'sample_rate': 2.4e6,
             'gain': 'auto'
         }
+        self.error_count = 0
+        self.max_errors = 3
         
         try:
             self.sdr = RtlSdr()
             # Configurazione iniziale
-            self.update_sdr_settings()
+            self._configure_sdr()
             
             # Avvio thread di acquisizione
             self.update_thread = Thread(target=self.update_spectrum)
@@ -49,21 +50,44 @@ class SDRHandler:
             if self.sdr:
                 self.sdr.close()
             raise
-    
-    def update_sdr_settings(self):
+
+    def _configure_sdr(self):
+        """Configurazione base dell'SDR con gestione errori"""
         if not self.sdr:
             return False
-            
+        
         try:
+            # Imposta un timeout più lungo per le letture
+            self.sdr.set_direct_sampling('i')
+            self.sdr.reset_buffer()
+            
             self.sdr.sample_rate = self.data['sample_rate']
             self.sdr.center_freq = self.data['center_freq']
             if self.data['gain'] == 'auto':
                 self.sdr.gain = 'auto'
             else:
                 self.sdr.gain = float(self.data['gain'])
+            
+            # Aggiungi un piccolo ritardo dopo la configurazione
+            time.sleep(0.1)
             return True
         except Exception as e:
-            print(f"Errore nell'aggiornamento delle impostazioni SDR: {e}")
+            print(f"Errore nella configurazione SDR: {e}")
+            return False
+    
+    def _reset_device(self):
+        """Resetta il dispositivo in caso di errori persistenti"""
+        print("Tentativo di reset del dispositivo...")
+        try:
+            if self.sdr:
+                self.sdr.close()
+            time.sleep(1)  # Attendi che il dispositivo si liberi
+            self.sdr = RtlSdr()
+            self._configure_sdr()
+            self.error_count = 0
+            return True
+        except Exception as e:
+            print(f"Errore nel reset del dispositivo: {e}")
             return False
     
     def update_spectrum(self):
@@ -74,25 +98,53 @@ class SDRHandler:
                 
             try:
                 with self.lock:
-                    samples = self.sdr.read_samples(1024)
-                    # Calcolo FFT
-                    pxx = np.fft.fftshift(np.abs(np.fft.fft(samples)))
-                    pxx_db = 20 * np.log10(pxx)
+                    # Aumenta il numero di campioni per una migliore risoluzione
+                    samples = self.sdr.read_samples(2048)
+                    
+                    # Applica una finestra di Hanning per ridurre il leakage spettrale
+                    window = np.hanning(len(samples))
+                    samples = samples * window
+                    
+                    # Calcolo FFT con zero-padding per migliore interpolazione
+                    nfft = 4096
+                    pxx = np.fft.fftshift(np.abs(np.fft.fft(samples, n=nfft)))
+                    pxx_db = 20 * np.log10(pxx + 1e-10)  # Evita log(0)
                     
                     # Calcolo frequenze
                     freqs = self.sdr.center_freq + np.fft.fftshift(
-                        np.fft.fftfreq(len(samples), 1/self.sdr.sample_rate)
+                        np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
                     )
+                    
+                    # Media mobile per ridurre il rumore
+                    if not hasattr(self, 'avg_buffer'):
+                        self.avg_buffer = []
+                    
+                    self.avg_buffer.append(pxx_db)
+                    if len(self.avg_buffer) > 5:  # Media su 5 campioni
+                        self.avg_buffer.pop(0)
+                    
+                    pxx_db_avg = np.mean(self.avg_buffer, axis=0)
                     
                     # Aggiornamento dati
                     self.data['frequencies'] = (freqs / 1e6).tolist()  # MHz
-                    self.data['powers'] = pxx_db.tolist()
+                    self.data['powers'] = pxx_db_avg.tolist()
+                    
+                    self.error_count = 0  # Reset contatore errori se successo
+                    
             except Exception as e:
                 print(f"Errore nell'acquisizione: {e}")
-                time.sleep(1)
+                self.error_count += 1
+                
+                if self.error_count >= self.max_errors:
+                    print("Troppi errori consecutivi, tentativo di reset...")
+                    if not self._reset_device():
+                        time.sleep(5)  # Attendi più a lungo se il reset fallisce
+                    continue
+                    
+                time.sleep(0.5)
                 continue
             
-            time.sleep(0.1)
+            time.sleep(0.05)  # Ridotto il tempo di sleep per aggiornamenti più frequenti
     
     def update_params(self, params):
         if not self.sdr:
@@ -100,15 +152,33 @@ class SDRHandler:
             
         with self.lock:
             try:
+                changed = False
                 if 'center_freq' in params:
-                    self.data['center_freq'] = float(params['center_freq'])
+                    new_freq = float(params['center_freq'])
+                    if new_freq != self.data['center_freq']:
+                        self.data['center_freq'] = new_freq
+                        changed = True
+                        
                 if 'sample_rate' in params:
-                    self.data['sample_rate'] = float(params['sample_rate'])
+                    new_rate = float(params['sample_rate'])
+                    if new_rate != self.data['sample_rate']:
+                        self.data['sample_rate'] = new_rate
+                        changed = True
+                        
                 if 'gain' in params:
-                    self.data['gain'] = params['gain']
+                    if params['gain'] != self.data['gain']:
+                        self.data['gain'] = params['gain']
+                        changed = True
                 
-                success = self.update_sdr_settings()
-                return success
+                if changed:
+                    # Reset buffer media se cambiamo parametri
+                    self.avg_buffer = []
+                    success = self._configure_sdr()
+                    if not success:
+                        self._reset_device()
+                    return success
+                return True
+                
             except Exception as e:
                 print(f"Errore nell'aggiornamento dei parametri: {e}")
                 return False
@@ -117,10 +187,9 @@ class SDRHandler:
         with self.lock:
             data = self.data.copy()
             if self.sdr:
-                # Aggiungi i parametri correnti
                 data['current_settings'] = {
-                    'center_freq': self.sdr.center_freq / 1e6,  # Converti in MHz
-                    'sample_rate': self.sdr.sample_rate / 1e6,  # Converti in MHz
+                    'center_freq': self.sdr.center_freq / 1e6,
+                    'sample_rate': self.sdr.sample_rate / 1e6,
                     'gain': self.sdr.gain
                 }
             return data
@@ -139,7 +208,6 @@ except Exception as e:
     print(f"Errore nella creazione dell'handler SDR: {e}")
     sdr_handler = None
 
-# Registra la funzione di pulizia
 atexit.register(lambda: sdr_handler.cleanup() if sdr_handler else None)
 
 @app.route('/')
@@ -169,4 +237,4 @@ def update_params():
         return jsonify({'status': 'error', 'message': 'Errore nell\'aggiornamento dei parametri'}), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)  # Disabilita la modalità debug
+    app.run(host='0.0.0.0', port=5000, debug=False)
