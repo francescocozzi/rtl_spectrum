@@ -59,7 +59,7 @@ class SDRHandler:
             print(f"Errore nella configurazione SDR: {e}")
             return False
 
-def update_spectrum(self):
+    def update_spectrum(self):
         samples_size = 1024
         while self.running:
             if not self.sdr:
