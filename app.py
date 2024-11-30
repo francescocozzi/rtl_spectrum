@@ -1,7 +1,7 @@
 from flask import Flask, render_template, jsonify, request
 from rtlsdr import RtlSdr
 import numpy as np
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
 import time
 import json
 import atexit
@@ -17,12 +17,16 @@ class SDRHandler:
         self.data_lock = Lock()
         self.sdr_lock = Lock()
         self.running = True
+        self.recovery_event = Event()
+        self.consecutive_errors = 0
+        self.max_consecutive_errors = 3
+        
         self.data = {
             'frequencies': [],
             'powers': [],
             'center_freq': 100e6,
             'sample_rate': 2.4e6,
-            'gain': 20  # Gain iniziale a 20 dB
+            'gain': 20
         }
         
         try:
@@ -49,7 +53,7 @@ class SDRHandler:
                 self.sdr.sample_rate = self.data['sample_rate']
                 self.sdr.center_freq = self.data['center_freq']
                 if self.data['gain'] == 'auto':
-                    self.sdr.gain = 20  # Default gain se in auto
+                    self.sdr.gain = 20
                 else:
                     self.sdr.gain = float(self.data['gain'])
                 
@@ -59,34 +63,56 @@ class SDRHandler:
             print(f"Errore nella configurazione SDR: {e}")
             return False
 
+    def _recover_device(self):
+        """Tenta di recuperare il dispositivo in caso di blocco"""
+        print("Tentativo di recupero del dispositivo...")
+        try:
+            with self.sdr_lock:
+                self.sdr.close()
+                time.sleep(1)
+                self.sdr = RtlSdr()
+                self._configure_sdr()
+                self.consecutive_errors = 0
+                print("Dispositivo recuperato con successo")
+                return True
+        except Exception as e:
+            print(f"Errore nel recupero del dispositivo: {e}")
+            return False
+
     def update_spectrum(self):
-        samples_size = 1024
+        samples_size = 512  # Ridotto il numero di campioni
         while self.running:
             if not self.sdr:
                 time.sleep(0.1)
                 continue
                 
             try:
+                # Se è in corso un recupero, aspetta
+                if self.recovery_event.is_set():
+                    time.sleep(0.1)
+                    continue
+                    
                 with self.sdr_lock:
                     samples = self.sdr.read_samples(samples_size)
                 
-                # Migliore normalizzazione dei campioni
-                samples = samples - np.mean(samples)  # Rimuove DC offset
-                samples = samples / (np.std(samples) + 1e-10)  # Normalizzazione più robusta
+                # Resetta il contatore errori se l'acquisizione è riuscita
+                self.consecutive_errors = 0
                 
-                # FFT con window
-                window = np.blackman(len(samples))  # Cambiato a Blackman per migliore dinamica
+                # Normalizzazione e rimozione DC
+                samples = samples - np.mean(samples)
+                samples = samples / (np.std(samples) + 1e-10)
+                
+                # FFT con finestra Blackman
+                window = np.blackman(len(samples))
                 samples = samples * window
                 
-                nfft = 2048
+                nfft = 1024  # Ridotto per maggiore velocità
                 pxx = np.fft.fftshift(np.abs(np.fft.fft(samples, n=nfft)))
                 
-                # Conversione in dB con range dinamico più ampio
+                # Conversione in dB e calibrazione
                 pxx_db = 20 * np.log10(pxx + 1e-10)
-                
-                # Calibrazione del livello e range dinamico
-                pxx_db = pxx_db - np.max(pxx_db)  # Riferisce al massimo
-                pxx_db = np.clip(pxx_db, -70, 0)  # Range dinamico più ampio
+                pxx_db = pxx_db - np.max(pxx_db)
+                pxx_db = np.clip(pxx_db, -70, 0)
                 
                 freqs = self.sdr.center_freq + np.fft.fftshift(
                     np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
@@ -107,6 +133,17 @@ class SDRHandler:
                     
             except Exception as e:
                 print(f"Errore nell'acquisizione: {e}")
+                self.consecutive_errors += 1
+                
+                # Se ci sono troppi errori consecutivi, tenta il recupero
+                if self.consecutive_errors >= self.max_consecutive_errors:
+                    self.recovery_event.set()
+                    if self._recover_device():
+                        self.recovery_event.clear()
+                    else:
+                        print("Recupero fallito, attendo prima di riprovare...")
+                        time.sleep(1)
+                        
                 time.sleep(0.1)
                 continue
             
@@ -114,6 +151,10 @@ class SDRHandler:
 
     def update_params(self, params):
         if not self.sdr:
+            return False
+            
+        # Non aggiornare i parametri durante il recupero
+        if self.recovery_event.is_set():
             return False
             
         with self.sdr_lock:
