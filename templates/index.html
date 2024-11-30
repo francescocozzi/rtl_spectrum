@@ -9,6 +9,8 @@
         .container { max-width: 1200px; margin-top: 20px; }
         .controls { margin: 20px 0; }
         .chart-container { position: relative; height: 400px; }
+        #statusMessage { display: none; margin-top: 10px; }
+        .current-settings { margin-top: 20px; font-size: 0.9em; color: #666; }
     </style>
 </head>
 <body>
@@ -43,8 +45,14 @@
                     <button class="btn btn-primary" onclick="updateParams()">
                         Aggiorna Parametri
                     </button>
+                    <div id="statusMessage" class="alert" role="alert"></div>
                 </div>
             </div>
+        </div>
+
+        <div class="current-settings">
+            <strong>Impostazioni Attuali:</strong>
+            <span id="currentSettings"></span>
         </div>
 
         <div class="chart-container">
@@ -87,6 +95,23 @@
             }
         });
 
+        function showStatus(message, isError = false) {
+            const statusElement = document.getElementById('statusMessage');
+            statusElement.textContent = message;
+            statusElement.className = `alert ${isError ? 'alert-danger' : 'alert-success'}`;
+            statusElement.style.display = 'block';
+            setTimeout(() => {
+                statusElement.style.display = 'none';
+            }, 3000);
+        }
+
+        function updateCurrentSettings(settings) {
+            const settingsText = `Freq: ${settings.center_freq.toFixed(1)} MHz, ` +
+                               `Rate: ${settings.sample_rate.toFixed(1)} MS/s, ` +
+                               `Gain: ${settings.gain}`;
+            document.getElementById('currentSettings').textContent = settingsText;
+        }
+
         function updateChart() {
             fetch('/get_spectrum')
                 .then(response => response.json())
@@ -94,6 +119,10 @@
                     chart.data.labels = data.frequencies;
                     chart.data.datasets[0].data = data.powers;
                     chart.update('none');
+                    
+                    if (data.current_settings) {
+                        updateCurrentSettings(data.current_settings);
+                    }
                 });
         }
 
@@ -110,6 +139,17 @@
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(params)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showStatus('Parametri aggiornati con successo!');
+                } else {
+                    showStatus(data.message || 'Errore nell\'aggiornamento dei parametri', true);
+                }
+            })
+            .catch(error => {
+                showStatus('Errore di connessione', true);
             });
         }
 
