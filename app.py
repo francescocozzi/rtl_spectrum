@@ -59,8 +59,8 @@ class SDRHandler:
             print(f"Errore nella configurazione SDR: {e}")
             return False
 
-    def update_spectrum(self):
-        samples_size = 1024  # Dimensione ridotta del buffer
+def update_spectrum(self):
+        samples_size = 1024
         while self.running:
             if not self.sdr:
                 time.sleep(0.1)
@@ -70,19 +70,23 @@ class SDRHandler:
                 with self.sdr_lock:
                     samples = self.sdr.read_samples(samples_size)
                 
-                # Normalizzazione
-                samples = samples / (np.max(np.abs(samples)) + 1e-10)
+                # Migliore normalizzazione dei campioni
+                samples = samples - np.mean(samples)  # Rimuove DC offset
+                samples = samples / (np.std(samples) + 1e-10)  # Normalizzazione più robusta
                 
-                # FFT
-                window = np.hamming(len(samples))
+                # FFT con window
+                window = np.blackman(len(samples))  # Cambiato a Blackman per migliore dinamica
                 samples = samples * window
                 
                 nfft = 2048
                 pxx = np.fft.fftshift(np.abs(np.fft.fft(samples, n=nfft)))
                 
-                # Conversione in dB con range limitato
+                # Conversione in dB con range dinamico più ampio
                 pxx_db = 20 * np.log10(pxx + 1e-10)
-                pxx_db = np.clip(pxx_db, -50, 30)
+                
+                # Calibrazione del livello e range dinamico
+                pxx_db = pxx_db - np.max(pxx_db)  # Riferisce al massimo
+                pxx_db = np.clip(pxx_db, -70, 0)  # Range dinamico più ampio
                 
                 freqs = self.sdr.center_freq + np.fft.fftshift(
                     np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
