@@ -22,7 +22,7 @@ class SDRHandler:
             'powers': [],
             'center_freq': 100e6,
             'sample_rate': 2.4e6,
-            'gain': 20  # Impostato un gain iniziale più basso
+            'gain': 20  # Gain iniziale a 20 dB
         }
         
         try:
@@ -46,7 +46,6 @@ class SDRHandler:
         
         try:
             with self.sdr_lock:
-                # Configurazione più conservativa
                 self.sdr.sample_rate = self.data['sample_rate']
                 self.sdr.center_freq = self.data['center_freq']
                 if self.data['gain'] == 'auto':
@@ -54,8 +53,6 @@ class SDRHandler:
                 else:
                     self.sdr.gain = float(self.data['gain'])
                 
-                # Configurazione aggiuntiva per migliorare la stabilità
-                self.sdr.freq_correction = 0
                 time.sleep(0.1)
             return True
         except Exception as e:
@@ -63,43 +60,40 @@ class SDRHandler:
             return False
 
     def update_spectrum(self):
-        samples_size = 1024  # Ridotto il numero di campioni
+        samples_size = 1024  # Dimensione ridotta del buffer
         while self.running:
             if not self.sdr:
                 time.sleep(0.1)
                 continue
                 
             try:
-                # Acquisizione con timeout più breve
                 with self.sdr_lock:
                     samples = self.sdr.read_samples(samples_size)
                 
-                # Normalizzazione dei campioni
-                samples = samples / np.max(np.abs(samples))
+                # Normalizzazione
+                samples = samples / (np.max(np.abs(samples)) + 1e-10)
                 
-                # Applicazione finestra
-                window = np.hamming(len(samples))  # Cambiato da hanning a hamming
+                # FFT
+                window = np.hamming(len(samples))
                 samples = samples * window
                 
-                # FFT con parametri ottimizzati
-                nfft = 2048  # Ridotto per maggiore velocità
+                nfft = 2048
                 pxx = np.fft.fftshift(np.abs(np.fft.fft(samples, n=nfft)))
                 
-                # Conversione in dB con range dinamico limitato
+                # Conversione in dB con range limitato
                 pxx_db = 20 * np.log10(pxx + 1e-10)
-                pxx_db = np.clip(pxx_db, -50, 30)  # Limita il range dinamico
+                pxx_db = np.clip(pxx_db, -50, 30)
                 
                 freqs = self.sdr.center_freq + np.fft.fftshift(
                     np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
                 )
                 
-                # Media mobile con meno campioni
                 with self.data_lock:
                     if not hasattr(self, 'avg_buffer'):
                         self.avg_buffer = []
                     
                     self.avg_buffer.append(pxx_db)
-                    if len(self.avg_buffer) > 3:  # Ridotto da 5 a 3
+                    if len(self.avg_buffer) > 3:
                         self.avg_buffer.pop(0)
                     
                     pxx_db_avg = np.mean(self.avg_buffer, axis=0)
@@ -143,10 +137,9 @@ class SDRHandler:
                 if 'gain' in params:
                     new_gain = params['gain']
                     if new_gain == 'auto':
-                        self.sdr.gain = 20  # Default gain se in auto
+                        self.sdr.gain = 20
                     else:
                         new_gain = float(new_gain)
-                        # Limita il gain a un range più sicuro
                         new_gain = min(max(new_gain, 0), 40)
                         self.sdr.gain = new_gain
                     self.data['gain'] = new_gain
