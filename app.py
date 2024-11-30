@@ -14,18 +14,16 @@ class SDRHandler:
             return
             
         self.sdr = None
-        self.data_lock = Lock()  # Lock per i dati
-        self.sdr_lock = Lock()   # Lock separato per le operazioni SDR
+        self.data_lock = Lock()
+        self.sdr_lock = Lock()
         self.running = True
         self.data = {
             'frequencies': [],
             'powers': [],
             'center_freq': 100e6,
             'sample_rate': 2.4e6,
-            'gain': 'auto'
+            'gain': 20  # Impostato un gain iniziale più basso
         }
-        self.error_count = 0
-        self.max_errors = 3
         
         try:
             self.sdr = RtlSdr()
@@ -48,49 +46,60 @@ class SDRHandler:
         
         try:
             with self.sdr_lock:
+                # Configurazione più conservativa
                 self.sdr.sample_rate = self.data['sample_rate']
                 self.sdr.center_freq = self.data['center_freq']
                 if self.data['gain'] == 'auto':
-                    self.sdr.gain = 'auto'
+                    self.sdr.gain = 20  # Default gain se in auto
                 else:
                     self.sdr.gain = float(self.data['gain'])
                 
-                time.sleep(0.1)  # Ridotto il tempo di attesa
+                # Configurazione aggiuntiva per migliorare la stabilità
+                self.sdr.freq_correction = 0
+                time.sleep(0.1)
             return True
         except Exception as e:
             print(f"Errore nella configurazione SDR: {e}")
             return False
 
     def update_spectrum(self):
+        samples_size = 1024  # Ridotto il numero di campioni
         while self.running:
             if not self.sdr:
                 time.sleep(0.1)
                 continue
                 
             try:
-                # Acquisizione campioni con lock SDR
+                # Acquisizione con timeout più breve
                 with self.sdr_lock:
-                    samples = self.sdr.read_samples(2048)
+                    samples = self.sdr.read_samples(samples_size)
                 
-                # Elaborazione dati senza lock
-                window = np.hanning(len(samples))
+                # Normalizzazione dei campioni
+                samples = samples / np.max(np.abs(samples))
+                
+                # Applicazione finestra
+                window = np.hamming(len(samples))  # Cambiato da hanning a hamming
                 samples = samples * window
                 
-                nfft = 4096
+                # FFT con parametri ottimizzati
+                nfft = 2048  # Ridotto per maggiore velocità
                 pxx = np.fft.fftshift(np.abs(np.fft.fft(samples, n=nfft)))
+                
+                # Conversione in dB con range dinamico limitato
                 pxx_db = 20 * np.log10(pxx + 1e-10)
+                pxx_db = np.clip(pxx_db, -50, 30)  # Limita il range dinamico
                 
                 freqs = self.sdr.center_freq + np.fft.fftshift(
                     np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
                 )
                 
-                # Aggiornamento buffer media con lock dati
+                # Media mobile con meno campioni
                 with self.data_lock:
                     if not hasattr(self, 'avg_buffer'):
                         self.avg_buffer = []
                     
                     self.avg_buffer.append(pxx_db)
-                    if len(self.avg_buffer) > 5:
+                    if len(self.avg_buffer) > 3:  # Ridotto da 5 a 3
                         self.avg_buffer.pop(0)
                     
                     pxx_db_avg = np.mean(self.avg_buffer, axis=0)
@@ -103,7 +112,7 @@ class SDRHandler:
                 time.sleep(0.1)
                 continue
             
-            time.sleep(0.01)  # Ridotto il tempo tra le acquisizioni
+            time.sleep(0.01)
 
     def update_params(self, params):
         if not self.sdr:
@@ -113,14 +122,12 @@ class SDRHandler:
             try:
                 print(f"Ricevuti parametri: {params}")
                 
-                # Salva parametri vecchi
                 old_params = {
                     'center_freq': self.sdr.center_freq,
                     'sample_rate': self.sdr.sample_rate,
                     'gain': self.sdr.gain
                 }
                 
-                # Aggiorna parametri
                 if 'center_freq' in params:
                     new_freq = float(params['center_freq'])
                     self.sdr.center_freq = new_freq
@@ -136,15 +143,17 @@ class SDRHandler:
                 if 'gain' in params:
                     new_gain = params['gain']
                     if new_gain == 'auto':
-                        self.sdr.gain = 'auto'
+                        self.sdr.gain = 20  # Default gain se in auto
                     else:
-                        self.sdr.gain = float(new_gain)
+                        new_gain = float(new_gain)
+                        # Limita il gain a un range più sicuro
+                        new_gain = min(max(new_gain, 0), 40)
+                        self.sdr.gain = new_gain
                     self.data['gain'] = new_gain
                     print(f"Gain aggiornato a: {new_gain}")
                 
                 time.sleep(0.1)
                 
-                # Pulisci buffer media
                 with self.data_lock:
                     if hasattr(self, 'avg_buffer'):
                         self.avg_buffer = []
@@ -152,7 +161,6 @@ class SDRHandler:
                 return True
                     
             except Exception as e:
-                # Ripristino parametri in caso di errore
                 try:
                     self.sdr.center_freq = old_params['center_freq']
                     self.sdr.sample_rate = old_params['sample_rate']
