@@ -440,18 +440,18 @@ def update_params():
         return jsonify({'status': 'success'})
     else:
         return jsonify({'status': 'error', 'message': 'Errore nell\'aggiornamento dei parametri'}), 400
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+        
 @app.route('/analyze_signal', methods=['POST'])
 def analyze_specific_signal():
+    if not sdr_handler:
+        return jsonify({'error': 'SDR non inizializzato'}), 500
+        
     try:
         data = request.get_json()
         start_freq = float(data['start_freq'])
         end_freq = float(data['end_freq'])
         
         with sdr_handler.data_lock:
-            # Troviamo gli indici corrispondenti all'intervallo di frequenza
             freqs = np.array(sdr_handler.data['frequencies'])
             powers = np.array(sdr_handler.data['powers'])
             
@@ -460,7 +460,6 @@ def analyze_specific_signal():
             if not any(mask):
                 return jsonify({'error': 'Nessun dato nella selezione'}), 400
             
-            # Analizziamo solo la porzione selezionata
             signal_info = sdr_handler.classifier.analyze_signal(
                 freqs[mask],
                 powers[mask],
@@ -479,4 +478,8 @@ def analyze_specific_signal():
                 return jsonify({'error': 'Nessun segnale rilevato nella selezione'}), 400
                 
     except Exception as e:
+        print(f"Errore nell'analisi del segnale specifico: {e}")
         return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)

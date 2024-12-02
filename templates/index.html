@@ -24,37 +24,32 @@
         
         .signal-info {
             padding: 10px;
-            border-radius: 4px;
             background-color: #f8f9fa;
+            border-radius: 4px;
+            margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 class="mt-4 mb-4">RTL-SDR Spectrum Analyzer</h1>
-        
+        <h1 id="rtl-sdr-spectrum-analyzer" class="mt-4 mb-4">RTL-SDR Spectrum Analyzer</h1>
+
         <div class="row mb-3">
-						<div class="col-md-4">
-						    <div class="form-group">
-						        <label for="centerFreq">Frequenza Centrale (MHz)</label>
-						        <input type="number" 
-						               class="form-control" 
-						               id="centerFreq" 
-						               value="100" 
-						               step="0.1" 
-						               min="0" 
-						               max="2000">
-						        <small class="form-text text-muted">Usa il punto per i decimali (es. 100.7)</small>
-						    </div>
-						</div>
-            
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label for="centerFreq">Frequenza Centrale (MHz)</label>
+                    <input type="number" class="form-control" id="centerFreq" value="100" step="0.1">
+                    <small class="text-muted">Usa il punto per i decimali (es. 100.7)</small>
+                </div>
+            </div>
+
             <div class="col-md-4">
                 <div class="form-group">
                     <label for="sampleRate">Sample Rate (MS/s)</label>
-                    <input type="number" class="form-control" id="sampleRate" value="2.4">
+                    <input type="number" class="form-control" id="sampleRate" value="2.4" step="0.1">
                 </div>
             </div>
-            
+
             <div class="col-md-4">
                 <div class="form-group">
                     <label for="gain">Gain (dB)</label>
@@ -68,27 +63,27 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="row mb-3">
             <div class="col">
                 <button id="updateParams" class="btn btn-primary">Aggiorna Parametri</button>
             </div>
         </div>
-        
+
         <div id="statusMessage" class="alert d-none" role="alert"></div>
-        
+
         <div class="row mb-3">
             <div class="col">
                 <p><strong>Impostazioni Attuali:</strong> <span id="currentSettings">Caricamento...</span></p>
             </div>
         </div>
-        
+
         <div class="row">
             <div class="col-12">
                 <div id="spectrumChart" class="chart-container"></div>
             </div>
         </div>
-        
+
         <div class="row">
             <div class="col-md-6">
                 <div id="iqTimeChart" class="iq-container"></div>
@@ -98,44 +93,43 @@
             </div>
         </div>
 
-        <!-- Sezione Analisi del Segnale -->
-				<div class="row mt-3">
-				    <div class="col">
-				        <div class="card">
-				            <div class="card-header">
-				                <h5 class="mb-0">Analisi Segnale Selezionato</h5>
-				            </div>
-				            <div class="card-body">
-				                <div class="row">
-				                    <div class="col-md-3">
-				                        <div class="signal-info">
-				                            <strong>Frequenza Centrale:</strong>
-				                            <span id="selectedFreq">-</span> MHz
-				                        </div>
-				                    </div>
-				                    <div class="col-md-3">
-				                        <div class="signal-info">
-				                            <strong>Modulazione:</strong>
-				                            <span id="modulation">-</span>
-				                        </div>
-				                    </div>
-				                    <div class="col-md-3">
-				                        <div class="signal-info">
-				                            <strong>Larghezza di banda:</strong>
-				                            <span id="bandwidth">-</span>
-				                        </div>
-				                    </div>
-				                    <div class="col-md-3">
-				                        <div class="signal-info">
-				                            <strong>Confidenza:</strong>
-				                            <span id="confidence">-</span>
-				                        </div>
-				                    </div>
-				                </div>
-				            </div>
-				        </div>
-				    </div>
-				</div>
+        <div class="row mt-3">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Analisi Segnale Selezionato</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="signal-info">
+                                    <strong>Frequenza Centrale:</strong><br>
+                                    <span id="selectedFreq">-</span> MHz
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="signal-info">
+                                    <strong>Modulazione:</strong><br>
+                                    <span id="modulation">-</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="signal-info">
+                                    <strong>Larghezza di banda:</strong><br>
+                                    <span id="bandwidth">-</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="signal-info">
+                                    <strong>Confidenza:</strong><br>
+                                    <span id="confidence">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Bootstrap Bundle with Popper -->
@@ -152,122 +146,121 @@
             statusMessage.classList.remove('d-none');
             setTimeout(() => statusMessage.classList.add('d-none'), 3000);
         }
-        
-        // Funzione per aggiornare l'analisi del segnale
-        function updateSignalAnalysis(signalInfo) {
-            if (signalInfo) {
-                document.getElementById('modulation').textContent = signalInfo.modulation;
-                document.getElementById('bandwidth').textContent = `${(signalInfo.bandwidth/1e6).toFixed(2)} MHz`;
-                document.getElementById('peakPower').textContent = `${signalInfo.peak_power.toFixed(1)} dB`;
-                document.getElementById('confidence').textContent = `${(signalInfo.confidence * 100).toFixed(0)}%`;
-            }
+
+        // Funzione per aggiornare i grafici IQ
+        function updateIQPlots(iqData) {
+            // Grafico temporale IQ
+            Plotly.newPlot('iqTimeChart', [
+                {
+                    x: iqData.time,
+                    y: iqData.i,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'I'
+                },
+                {
+                    x: iqData.time,
+                    y: iqData.q,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Q'
+                }
+            ], {
+                title: 'IQ Time Domain',
+                xaxis: { title: 'Tempo (s)' },
+                yaxis: { title: 'Ampiezza' }
+            });
+
+            // Costellazione IQ
+            Plotly.newPlot('iqConstellation', [{
+                x: iqData.i,
+                y: iqData.q,
+                type: 'scatter',
+                mode: 'markers',
+                marker: { size: 3 },
+                name: 'IQ'
+            }], {
+                title: 'IQ Constellation',
+                xaxis: { title: 'I' },
+                yaxis: { title: 'Q' }
+            });
         }
-        
+
         // Funzione per aggiornare lo spettro
         function updateSpectrum() {
             fetch('/get_spectrum')
                 .then(response => response.json())
                 .then(data => {
+                    if (data.error) {
+                        showStatus(data.error, true);
+                        return;
+                    }
+
                     // Aggiorna impostazioni correnti
                     const settings = data.current_settings;
                     document.getElementById('currentSettings').textContent = 
                         `Freq: ${settings.center_freq.toFixed(2)} MHz, Rate: ${settings.sample_rate.toFixed(2)} MS/s, Gain: ${settings.gain}`;
                     
-												// Nel codice JavaScript esistente, modifichiamo la creazione del grafico spettro
-												Plotly.newPlot('spectrumChart', [{
-												    x: data.frequencies,
-												    y: data.powers,
-												    type: 'scatter',
-												    mode: 'lines',
-												    name: 'Spectrum'
-												}], {
-												    title: 'Spettro RF',
-												    xaxis: { 
-												        title: 'Frequenza (MHz)',
-												        rangeslider: {}, // Aggiunge uno slider per lo zoom
-												    },
-												    yaxis: { title: 'Potenza (dB)' },
-												    dragmode: 'select',  // Abilita la selezione
-												}, {
-												    modeBarButtonsToAdd: [{
-												        name: 'Analizza segnale selezionato',
-												        icon: Plotly.Icons.zoom,
-												        click: function(gd) {
-												            analyzeSelectedSignal(gd);
-												        }
-												    }]
-												});
-
-												// Funzione per gestire la selezione
-												function analyzeSelectedSignal(gd) {
-												    const selection = gd.layout.xaxis.range;
-												    if (!selection) return;
-
-												    const [startFreq, endFreq] = selection;
-												    fetch('/analyze_signal', {
-												        method: 'POST',
-												        headers: {
-												            'Content-Type': 'application/json'
-												        },
-												        body: JSON.stringify({
-												            start_freq: startFreq,
-												            end_freq: endFreq
-												        })
-												    })
-												    .then(response => response.json())
-												    .then(data => updateSignalAnalysis(data));
-												}
-                    
-                    // Aggiorna grafici IQ
-                    const iqData = data.iq_data;
-                    
-                    // Grafico temporale IQ
-                    Plotly.newPlot('iqTimeChart', [
-                        {
-                            x: iqData.time,
-                            y: iqData.i,
-                            type: 'scatter',
-                            mode: 'lines',
-                            name: 'I'
-                        },
-                        {
-                            x: iqData.time,
-                            y: iqData.q,
-                            type: 'scatter',
-                            mode: 'lines',
-                            name: 'Q'
-                        }
-                    ], {
-                        title: 'IQ Time Domain',
-                        xaxis: { title: 'Tempo (s)' },
-                        yaxis: { title: 'Ampiezza' }
-                    });
-                    
-                    // Costellazione IQ
-                    Plotly.newPlot('iqConstellation', [{
-                        x: iqData.i,
-                        y: iqData.q,
+                    // Aggiorna grafico spettro con supporto selezione
+                    Plotly.newPlot('spectrumChart', [{
+                        x: data.frequencies,
+                        y: data.powers,
                         type: 'scatter',
-                        mode: 'markers',
-                        marker: { size: 3 },
-                        name: 'IQ'
+                        mode: 'lines',
+                        name: 'Spectrum'
                     }], {
-                        title: 'IQ Constellation',
-                        xaxis: { title: 'I' },
-                        yaxis: { title: 'Q' }
+                        title: 'Spettro RF',
+                        xaxis: { 
+                            title: 'Frequenza (MHz)',
+                            rangeslider: {}
+                        },
+                        yaxis: { title: 'Potenza (dB)' },
+                        dragmode: 'select'
                     });
-                    
-                    // Aggiorna analisi del segnale
-                    if (data.signal_info) {
-                        updateSignalAnalysis(data.signal_info);
-                    }
+
+                    // Aggiorna grafici IQ
+                    updateIQPlots(data.iq_data);
                 })
                 .catch(error => {
                     console.error('Errore nel recupero dei dati:', error);
                     showStatus('Errore nel recupero dei dati', true);
                 });
         }
-        
+
+        // Gestione della selezione sullo spettro
+        document.getElementById('spectrumChart').on('plotly_selected', function(eventData) {
+            if (!eventData || !eventData.range) return;
+
+            const range = eventData.range.x;
+            fetch('/analyze_signal', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    start_freq: range[0],
+                    end_freq: range[1]
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showStatus(data.error, true);
+                    return;
+                }
+                
+                // Aggiorna i campi dell'analisi
+                document.getElementById('selectedFreq').textContent = data.center_freq.toFixed(3);
+                document.getElementById('modulation').textContent = data.modulation;
+                document.getElementById('bandwidth').textContent = data.bandwidth.toFixed(3) + ' MHz';
+                document.getElementById('confidence').textContent = (data.confidence * 100).toFixed(1) + '%';
+            })
+            .catch(error => {
+                console.error('Errore nell\'analisi del segnale:', error);
+                showStatus('Errore nell\'analisi del segnale', true);
+            });
+        });
+
         // Gestione aggiornamento parametri
         document.getElementById('updateParams').addEventListener('click', () => {
             const params = {
@@ -296,18 +289,18 @@
                 showStatus('Errore nella comunicazione con il server', true);
             });
         });
-        
-        // Avvio aggiornamento periodico
+
+        // Funzione per avviare gli aggiornamenti periodici
         function startUpdates() {
             updateSpectrum();
             updateTimer = setInterval(updateSpectrum, 100);
         }
-        
+
         // Gestione dell'uscita
         window.addEventListener('beforeunload', () => {
             clearInterval(updateTimer);
         });
-        
+
         // Avvio iniziale
         startUpdates();
     </script>
