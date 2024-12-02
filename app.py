@@ -395,78 +395,77 @@ def update_params():
                 rate = float(params['sample_rate'])
                 if not (1.0 <= rate <= 2.4):
                     return jsonify({'error': 'Sample rate deve essere tra 1.0 e 2.4 MS/s'}), 400
-            except ValueError:
-                return jsonify({'error': 'Sample rate non valido'}), 400
+                                except ValueError:
+                                    return jsonify({'error': 'Sample rate non valido'}), 400
                 
-        if 'gain' in params:
-                    if params['gain'] != 'auto':
+                            if 'gain' in params:
+                                if params['gain'] != 'auto':
+                                    try:
+                                        gain = float(params['gain'])
+                                        if not (0 <= gain <= 40):
+                                            return jsonify({'error': 'Gain deve essere tra 0 e 40 dB'}), 400
+                                    except ValueError:
+                                        return jsonify({'error': 'Gain non valido'}), 400
+        
+                            # Converti i valori nelle unità corrette
+                            if 'center_freq' in params:
+                                params['center_freq'] *= 1e6  # Converti da MHz a Hz
+                            if 'sample_rate' in params:
+                                params['sample_rate'] *= 1e6  # Converti da MS/s a S/s
+            
+                            success = sdr_handler.update_params(params)
+        
+                            if success:
+                                return jsonify({'status': 'success'})
+                            else:
+                                return jsonify({'error': 'Errore nell\'aggiornamento dei parametri'}), 500
+            
+                        except Exception as e:
+                            return jsonify({'error': f'Errore: {str(e)}'}), 500
+
+                    @app.route('/analyze_signal', methods=['POST'])
+                    def analyze_specific_signal():
+                        if not sdr_handler:
+                            return jsonify({'error': 'SDR non inizializzato'}), 503
+        
                         try:
-                            gain = float(params['gain'])
-                            if not (0 <= gain <= 40):
-                                return jsonify({'error': 'Gain deve essere tra 0 e 40 dB'}), 400
-                        except ValueError:
-                            return jsonify({'error': 'Gain non valido'}), 400
+                            data = request.get_json()
+                            start_freq = float(data['start_freq'])
+                            end_freq = float(data['end_freq'])
         
-                # Converti i valori nelle unità corrette
-                if 'center_freq' in params:
-                    params['center_freq'] *= 1e6  # Converti da MHz a Hz
-                if 'sample_rate' in params:
-                    params['sample_rate'] *= 1e6  # Converti da MS/s a S/s
+                            with sdr_handler.data_lock:
+                                freqs = np.array(sdr_handler.data['frequencies'])
+                                powers = np.array(sdr_handler.data['powers'])
             
-                success = sdr_handler.update_params(params)
-        
-                if success:
-                    return jsonify({'status': 'success'})
-                else:
-                    return jsonify({'error': 'Errore nell\'aggiornamento dei parametri'}), 500
+                                mask = (freqs >= start_freq) & (freqs <= end_freq)
             
-            except Exception as e:
-                return jsonify({'error': f'Errore: {str(e)}'}), 500
-
-        # Route per l'analisi di un segnale specifico
-        @app.route('/analyze_signal', methods=['POST'])
-        def analyze_specific_signal():
-            if not sdr_handler:
-                return jsonify({'error': 'SDR non inizializzato'}), 503
-        
-            try:
-                data = request.get_json()
-                start_freq = float(data['start_freq'])
-                end_freq = float(data['end_freq'])
-        
-                with sdr_handler.data_lock:
-                    freqs = np.array(sdr_handler.data['frequencies'])
-                    powers = np.array(sdr_handler.data['powers'])
+                                if not any(mask):
+                                    return jsonify({'error': 'Nessun dato nella selezione'}), 400
             
-                    mask = (freqs >= start_freq) & (freqs <= end_freq)
+                                signal_info = sdr_handler.classifier.analyze_signal(
+                                    freqs[mask],
+                                    powers[mask],
+                                    sdr_handler.data['iq_data']
+                                )
             
-                    if not any(mask):
-                        return jsonify({'error': 'Nessun dato nella selezione'}), 400
-            
-                    signal_info = sdr_handler.classifier.analyze_signal(
-                        freqs[mask],
-                        powers[mask],
-                        sdr_handler.data['iq_data']
-                    )
-            
-                    if signal_info:
-                        return jsonify({
-                            'modulation': signal_info.modulation_type,
-                            'bandwidth': float(signal_info.bandwidth),
-                            'peak_power': float(signal_info.peak_power),
-                            'confidence': float(signal_info.confidence),
-                            'center_freq': (start_freq + end_freq) / 2
-                        })
-                    else:
-                        return jsonify({'error': 'Nessun segnale rilevato nella selezione'}), 400
+                                if signal_info:
+                                    return jsonify({
+                                        'modulation': signal_info.modulation_type,
+                                        'bandwidth': float(signal_info.bandwidth),
+                                        'peak_power': float(signal_info.peak_power),
+                                        'confidence': float(signal_info.confidence),
+                                        'center_freq': (start_freq + end_freq) / 2
+                                    })
+                                else:
+                                    return jsonify({'error': 'Nessun segnale rilevato nella selezione'}), 400
                 
-            except Exception as e:
-                print(f"Errore nell'analisi del segnale specifico: {e}")
-                return jsonify({'error': str(e)}), 500
+                        except Exception as e:
+                            print(f"Errore nell'analisi del segnale specifico: {e}")
+                            return jsonify({'error': str(e)}), 500
 
-        if __name__ == '__main__':
-            try:
-                app.run(host='0.0.0.0', port=5000, debug=False)
-            finally:
-                if sdr_handler:
-                    sdr_handler.cleanup()
+                    if __name__ == '__main__':
+                        try:
+                            app.run(host='0.0.0.0', port=5000, debug=False)
+                        finally:
+                            if sdr_handler:
+                                sdr_handler.cleanup()
