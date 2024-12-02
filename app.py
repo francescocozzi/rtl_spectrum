@@ -26,41 +26,25 @@ class SignalClassifier:
         }
 
     def _identify_modulation(self, bw_ratio, iq_var_ratio, phase_var):
-        """
-        Identifica il tipo di modulazione basandosi sui parametri del segnale
-        
-        Args:
-            bw_ratio (float): Rapporto di banda
-            iq_var_ratio (float): Rapporto di varianza I/Q
-            phase_var (float): Varianza della fase
-            
-        Returns:
-            tuple: (tipo_modulazione, confidenza)
-        """
         scores = {}
         
-        # Calcola un punteggio per ogni tipo di modulazione
         for mod_type, pattern in self.modulation_patterns.items():
             score = 0
             
-            # Valuta il rapporto di banda
             if 'bandwidth_ratio' in pattern:
                 bandwidth_score = 1 - min(abs(pattern['bandwidth_ratio'] - bw_ratio) / 0.1, 1)
                 score += 0.4 * bandwidth_score
             
-            # Valuta il rapporto di varianza I/Q
             if 'iq_variance_ratio' in pattern:
                 variance_score = 1 - min(abs(pattern['iq_variance_ratio'] - iq_var_ratio) / 0.2, 1)
                 score += 0.3 * variance_score
             
-            # Valuta la varianza della fase
             if 'iq_phase_var' in pattern:
                 phase_score = 1 - min(abs(pattern['iq_phase_var'] - phase_var) / 0.2, 1)
                 score += 0.3 * phase_score
                 
-            scores[mod_type] = max(0, min(score, 1))  # Normalizza tra 0 e 1
+            scores[mod_type] = max(0, min(score, 1))
         
-        # Trova la modulazione con il punteggio più alto
         if not scores:
             return 'Unknown', 0.0
             
@@ -72,7 +56,6 @@ class SignalClassifier:
             powers_array = np.array(powers)
             frequencies_array = np.array(frequencies)
             
-            # Trova picchi significativi
             peak_indices = signal.find_peaks(powers_array, 
                                            height=np.mean(powers_array) + np.std(powers_array),
                                            distance=int(len(powers_array) * 0.05))[0]
@@ -83,10 +66,8 @@ class SignalClassifier:
             peak_powers = powers_array[peak_indices]
             max_peak_idx = peak_indices[int(np.argmax(peak_powers))]
             
-            # Calcola larghezza di banda
             bandwidth = self._estimate_bandwidth(frequencies_array, powers_array, max_peak_idx)
             
-            # Analisi I/Q
             i_data = np.array(iq_data.get('i', []))
             q_data = np.array(iq_data.get('q', []))
             
@@ -98,12 +79,10 @@ class SignalClassifier:
                     confidence=0.0
                 )
             
-            # Calcolo caratteristiche I/Q
             complex_signal = i_data + 1j*q_data
             phase_var = np.var(np.angle(complex_signal))
             iq_var_ratio = np.var(i_data) / (np.var(q_data) + 1e-10)
             
-            # Identifica modulazione
             mod_type, confidence = self._identify_modulation(
                 bandwidth/(frequencies_array[1] - frequencies_array[0]), 
                 iq_var_ratio,
@@ -123,10 +102,9 @@ class SignalClassifier:
 
     def _estimate_bandwidth(self, freqs, powers, peak_idx):
         try:
-            # Calcola soglia dinamica
             noise_floor = np.median(powers)
-            threshold = powers[peak_idx] - 3  # -3dB threshold
-            threshold = max(threshold, noise_floor + 6)  # almeno 6dB sopra il rumore
+            threshold = powers[peak_idx] - 3
+            threshold = max(threshold, noise_floor + 6)
             
             left_idx = peak_idx
             right_idx = peak_idx
@@ -201,6 +179,52 @@ class SDRHandler:
         gain_value = float(self.data['gain'])
         return min(gain_value, 30) if self.data['center_freq'] < 300e6 else min(gain_value, 40)
 
+    def update_params(self, params):
+        if not self.sdr:
+            return False
+        
+        with self.sdr_lock:
+            try:
+                old_params = {
+                    'center_freq': self.sdr.center_freq,
+                    'sample_rate': self.sdr.sample_rate,
+                    'gain': self.sdr.gain
+                }
+                
+                if 'center_freq' in params:
+                    self.sdr.center_freq = params['center_freq']
+                    self.data['center_freq'] = params['center_freq']
+                    
+                if 'sample_rate' in params:
+                    self.sdr.sample_rate = params['sample_rate']
+                    self.data['sample_rate'] = params['sample_rate']
+                    
+                if 'gain' in params:
+                    if params['gain'] == 'auto':
+                        gain = 20 if self.data['center_freq'] >= 300e6 else 15
+                    else:
+                        gain = float(params['gain'])
+                    self.sdr.gain = gain
+                    self.data['gain'] = params['gain']
+                    
+                time.sleep(0.1)
+                
+                with self.data_lock:
+                    if hasattr(self, 'avg_buffer'):
+                        self.avg_buffer = []
+                    
+                return True
+                
+            except Exception as e:
+                print(f"Errore nell'aggiornamento dei parametri: {e}")
+                try:
+                    self.sdr.center_freq = old_params['center_freq']
+                    self.sdr.sample_rate = old_params['sample_rate']
+                    self.sdr.gain = old_params['gain']
+                except:
+                    pass
+                return False
+
     def update_spectrum(self):
         while self.running:
             if not self.sdr or self.recovery_event.is_set():
@@ -223,7 +247,7 @@ class SDRHandler:
             except Exception as e:
                 self._handle_error(e)
                 
-            time.sleep(0.01)
+            time.sleep(0.02)
 
     def _get_samples(self):
         try:
@@ -234,19 +258,16 @@ class SDRHandler:
             return None
 
     def _process_spectrum(self, samples):
-        # Normalizzazione e FFT
         samples_norm = (samples - np.mean(samples)) / (np.std(samples) + 1e-10)
         window = np.blackman(len(samples_norm))
         samples_windowed = samples_norm * window
         
-        # FFT con dimensione ottimizzata
-        nfft = 2048  # Aumentato per migliore risoluzione
+        nfft = 2048
         pxx = np.fft.fftshift(np.abs(np.fft.fft(samples_windowed, n=nfft)))
         
-        # Conversione in dB con range dinamico ottimizzato
         pxx_db = 20 * np.log10(pxx + 1e-10)
         pxx_db = pxx_db - np.max(pxx_db)
-        pxx_db = np.clip(pxx_db, -80, 0)  # Range dinamico aumentato
+        pxx_db = np.clip(pxx_db, -80, 0)
         
         freqs = self.sdr.center_freq + np.fft.fftshift(
             np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
@@ -258,10 +279,9 @@ class SDRHandler:
         }
 
     def _process_iq_data(self, samples):
-        i_data = samples.real[:100]  # Limitato a 100 campioni per performance
+        i_data = samples.real[:100]
         q_data = samples.imag[:100]
         
-        # Normalizzazione robusta
         max_iq = max(np.max(np.abs(i_data)), np.max(np.abs(q_data)))
         i_data = i_data / (max_iq + 1e-10)
         q_data = q_data / (max_iq + 1e-10)
@@ -357,13 +377,11 @@ def update_params():
         return jsonify({'error': 'SDR non inizializzato'}), 503
         
     try:
-        # Verifica che la richiesta contenga JSON valido
         if not request.is_json:
             return jsonify({'error': 'Content-Type deve essere application/json'}), 400
             
         params = request.get_json()
         
-        # Valida i parametri ricevuti
         if 'center_freq' in params:
             try:
                 freq = float(params['center_freq'])
@@ -381,153 +399,74 @@ def update_params():
                 return jsonify({'error': 'Sample rate non valido'}), 400
                 
         if 'gain' in params:
-            if params['gain'] != 'auto':
-                try:
-                    gain = float(params['gain'])
-                    if not (0 <= gain <= 40):
-                        return jsonify({'error': 'Gain deve essere tra 0 e 40 dB'}), 400
-                except ValueError:
-                    return jsonify({'error': 'Gain non valido'}), 400
+                    if params['gain'] != 'auto':
+                        try:
+                            gain = float(params['gain'])
+                            if not (0 <= gain <= 40):
+                                return jsonify({'error': 'Gain deve essere tra 0 e 40 dB'}), 400
+                        except ValueError:
+                            return jsonify({'error': 'Gain non valido'}), 400
         
-        # Converti i valori nelle unità corrette
-        if 'center_freq' in params:
-            params['center_freq'] *= 1e6  # Converti da MHz a Hz
-        if 'sample_rate' in params:
-            params['sample_rate'] *= 1e6  # Converti da MS/s a S/s
+                # Converti i valori nelle unità corrette
+                if 'center_freq' in params:
+                    params['center_freq'] *= 1e6  # Converti da MHz a Hz
+                if 'sample_rate' in params:
+                    params['sample_rate'] *= 1e6  # Converti da MS/s a S/s
             
-        success = sdr_handler.update_params(params)
+                success = sdr_handler.update_params(params)
         
-        if success:
-            return jsonify({'status': 'success'})
-        else:
-            return jsonify({'error': 'Errore nell\'aggiornamento dei parametri'}), 500
-            
-    except Exception as e:
-        return jsonify({'error': f'Errore: {str(e)}'}), 500
-
-def update_params(self, params):
-    """
-    Metodo della classe SDRHandler per aggiornare i parametri
-    """
-    if not self.sdr:
-        return False
-        
-    with self.sdr_lock:
-        try:
-            # Salva i parametri correnti per il rollback in caso di errore
-            old_params = {
-                'center_freq': self.sdr.center_freq,
-                'sample_rate': self.sdr.sample_rate,
-                'gain': self.sdr.gain
-            }
-            
-            # Aggiorna i parametri uno alla volta
-            if 'center_freq' in params:
-                self.sdr.center_freq = params['center_freq']
-                self.data['center_freq'] = params['center_freq']
-                
-            if 'sample_rate' in params:
-                self.sdr.sample_rate = params['sample_rate']
-                self.data['sample_rate'] = params['sample_rate']
-                
-            if 'gain' in params:
-                if params['gain'] == 'auto':
-                    gain = 20 if self.data['center_freq'] >= 300e6 else 15
+                if success:
+                    return jsonify({'status': 'success'})
                 else:
-                    gain = float(params['gain'])
-                self.sdr.gain = gain
-                self.data['gain'] = params['gain']
-                
-            # Attendi che i parametri si stabilizzino
-            time.sleep(0.1)
+                    return jsonify({'error': 'Errore nell\'aggiornamento dei parametri'}), 500
             
-            # Reset del buffer di media
-            with self.data_lock:
-                self.avg_buffer = []
-                
-            return True
-            
-        except Exception as e:
-            print(f"Errore nell'aggiornamento dei parametri: {e}")
-            # Ripristina i vecchi parametri
+            except Exception as e:
+                return jsonify({'error': f'Errore: {str(e)}'}), 500
+
+        # Route per l'analisi di un segnale specifico
+        @app.route('/analyze_signal', methods=['POST'])
+        def analyze_specific_signal():
+            if not sdr_handler:
+                return jsonify({'error': 'SDR non inizializzato'}), 503
+        
             try:
-                self.sdr.center_freq = old_params['center_freq']
-                self.sdr.sample_rate = old_params['sample_rate']
-                self.sdr.gain = old_params['gain']
-            except:
-                pass
-            return False
-
-def update_spectrum(self):
-    """
-    Metodo ottimizzato della classe SDRHandler per l'aggiornamento dello spettro
-    """
-    while self.running:
-        if not self.sdr or self.recovery_event.is_set():
-            time.sleep(0.1)
-            continue
+                data = request.get_json()
+                start_freq = float(data['start_freq'])
+                end_freq = float(data['end_freq'])
+        
+                with sdr_handler.data_lock:
+                    freqs = np.array(sdr_handler.data['frequencies'])
+                    powers = np.array(sdr_handler.data['powers'])
             
-        try:
-            with self.sdr_lock:
-                samples = self.sdr.read_samples(1024)  # Dimensione ottimizzata
-                
-            if samples is None or len(samples) == 0:
-                continue
-                
-            with self.data_lock:
-                # Normalizzazione e windowing
-                samples_norm = (samples - np.mean(samples)) / (np.std(samples) + 1e-10)
-                window = np.blackman(len(samples_norm))
-                samples_windowed = samples_norm * window
-                
-                # FFT
-                nfft = 2048  # Aumentato per migliore risoluzione
-                pxx = np.fft.fftshift(np.abs(np.fft.fft(samples_windowed, n=nfft)))
-                pxx_db = 20 * np.log10(pxx + 1e-10)
-                pxx_db = pxx_db - np.max(pxx_db)
-                pxx_db = np.clip(pxx_db, -70, 0)
-                
-                # Calcolo frequenze
-                freqs = self.sdr.center_freq + np.fft.fftshift(
-                    np.fft.fftfreq(nfft, 1/self.sdr.sample_rate)
-                )
-                
-                # Media mobile
-                if not hasattr(self, 'avg_buffer'):
-                    self.avg_buffer = []
-                    
-                self.avg_buffer.append(pxx_db)
-                if len(self.avg_buffer) > 3:  # Media su 3 campioni
-                    self.avg_buffer.pop(0)
-                    
-                pxx_db_avg = np.mean(self.avg_buffer, axis=0)
-                
-                # Aggiornamento dati
-                self.data['frequencies'] = (freqs / 1e6).tolist()
-                self.data['powers'] = pxx_db_avg.tolist()
-                
-                # Dati IQ
-                i_data = samples.real[:100]
-                q_data = samples.imag[:100]
-                max_iq = max(np.max(np.abs(i_data)), np.max(np.abs(q_data)))
-                
-                self.data['iq_data'] = {
-                    'i': (i_data / (max_iq + 1e-10)).tolist(),
-                    'q': (q_data / (max_iq + 1e-10)).tolist(),
-                    'time': np.arange(len(i_data)).tolist()
-                }
-                
-        except Exception as e:
-            print(f"Errore nell'acquisizione: {e}")
-            self.consecutive_errors += 1
-            if self.consecutive_errors >= self.max_consecutive_errors:
-                self.recovery_event.set()
-                
-            time.sleep(0.1)
-            continue
+                    mask = (freqs >= start_freq) & (freqs <= end_freq)
             
-        # Regola il tempo di aggiornamento
-        time.sleep(0.02)  # 50 Hz update rate
+                    if not any(mask):
+                        return jsonify({'error': 'Nessun dato nella selezione'}), 400
+            
+                    signal_info = sdr_handler.classifier.analyze_signal(
+                        freqs[mask],
+                        powers[mask],
+                        sdr_handler.data['iq_data']
+                    )
+            
+                    if signal_info:
+                        return jsonify({
+                            'modulation': signal_info.modulation_type,
+                            'bandwidth': float(signal_info.bandwidth),
+                            'peak_power': float(signal_info.peak_power),
+                            'confidence': float(signal_info.confidence),
+                            'center_freq': (start_freq + end_freq) / 2
+                        })
+                    else:
+                        return jsonify({'error': 'Nessun segnale rilevato nella selezione'}), 400
+                
+            except Exception as e:
+                print(f"Errore nell'analisi del segnale specifico: {e}")
+                return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+        if __name__ == '__main__':
+            try:
+                app.run(host='0.0.0.0', port=5000, debug=False)
+            finally:
+                if sdr_handler:
+                    sdr_handler.cleanup()
