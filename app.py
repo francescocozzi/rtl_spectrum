@@ -18,48 +18,46 @@ class SignalFeatures:
     modulation_type: str
     confidence: float
     
-class SignalClassifier:
-    def __init__(self):
-        self.modulation_patterns = {
-            'AM': {'bandwidth_ratio': 0.1, 'iq_variance_ratio': 0.2},
-            'FM': {'bandwidth_ratio': 0.2, 'iq_variance_ratio': 0.8},
-            'FSK': {'bandwidth_ratio': 0.15, 'iq_phase_var': 0.5},
-            'PSK': {'bandwidth_ratio': 0.1, 'iq_phase_var': 0.3},
-            'QAM': {'bandwidth_ratio': 0.12, 'iq_constellation': 'square'}
-        }
-
-    def analyze_signal(self, frequencies, powers, iq_data):
-        # Trova picchi significativi nello spettro
-        peak_indices = signal.find_peaks(powers, height=-40, distance=10)[0]
-        if not len(peak_indices):
-            return None
-            
-        # Analizza il picco più forte
-        main_peak_idx = peak_indices[np.argmax(powers[peak_indices])]
-        peak_freq = frequencies[main_peak_idx]
-        peak_power = powers[main_peak_idx]
-        
-        # Calcola larghezza di banda
-        bandwidth = self._estimate_bandwidth(frequencies, powers, main_peak_idx)
-        
-        # Analizza caratteristiche IQ
-        i_data, q_data = np.array(iq_data['i']), np.array(iq_data['q'])
-        phase_var = np.var(np.angle(i_data + 1j*q_data))
-        iq_var_ratio = np.var(i_data) / (np.var(q_data) + 1e-10)
-        
-        # Identifica modulazione
-        mod_type, confidence = self._identify_modulation(
-            bandwidth/frequencies[1], 
-            iq_var_ratio,
-            phase_var
-        )
-        
-        return SignalFeatures(
-            bandwidth=bandwidth,
-            peak_power=peak_power,
-            modulation_type=mod_type,
-            confidence=confidence
-        )
+def analyze_signal(self, frequencies, powers, iq_data):
+    # Converti i dati in array numpy
+    powers_array = np.array(powers)
+    frequencies_array = np.array(frequencies)
+    
+    # Trova picchi significativi nello spettro
+    peak_indices = signal.find_peaks(powers_array, height=-40, distance=10)[0]
+    if len(peak_indices) == 0:
+        return None
+    
+    # Trova l'indice del picco più forte
+    peak_powers = powers_array[peak_indices]
+    max_peak_idx = peak_indices[np.argmax(peak_powers)]
+    
+    # Calcola i parametri del segnale
+    peak_freq = frequencies_array[max_peak_idx]
+    peak_power = powers_array[max_peak_idx]
+    
+    # Calcola larghezza di banda
+    bandwidth = self._estimate_bandwidth(frequencies_array, powers_array, max_peak_idx)
+    
+    # Analizza caratteristiche IQ
+    i_data = np.array(iq_data['i'])
+    q_data = np.array(iq_data['q'])
+    phase_var = np.var(np.angle(i_data + 1j*q_data))
+    iq_var_ratio = np.var(i_data) / (np.var(q_data) + 1e-10)
+    
+    # Identifica modulazione
+    mod_type, confidence = self._identify_modulation(
+        bandwidth/abs(frequencies_array[1] - frequencies_array[0]), 
+        iq_var_ratio,
+        phase_var
+    )
+    
+    return SignalFeatures(
+        bandwidth=float(bandwidth),  # Converti in float per serializzazione JSON
+        peak_power=float(peak_power),
+        modulation_type=str(mod_type),
+        confidence=float(confidence)
+    )
     
     def _estimate_bandwidth(self, freqs, powers, peak_idx):
         threshold = powers[peak_idx] - 3  # -3dB threshold
