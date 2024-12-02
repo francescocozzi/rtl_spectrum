@@ -5,8 +5,88 @@ from threading import Thread, Lock, Event
 import time
 import json
 import atexit
+import numpy as np
+from scipy import signal
+from dataclasses import dataclass
 
 app = Flask(__name__)
+
+@dataclass
+class SignalFeatures:
+    bandwidth: float
+    peak_power: float
+    modulation_type: str
+    confidence: float
+    
+class SignalClassifier:
+    def __init__(self):
+        self.modulation_patterns = {
+            'AM': {'bandwidth_ratio': 0.1, 'iq_variance_ratio': 0.2},
+            'FM': {'bandwidth_ratio': 0.2, 'iq_variance_ratio': 0.8},
+            'FSK': {'bandwidth_ratio': 0.15, 'iq_phase_var': 0.5},
+            'PSK': {'bandwidth_ratio': 0.1, 'iq_phase_var': 0.3},
+            'QAM': {'bandwidth_ratio': 0.12, 'iq_constellation': 'square'}
+        }
+
+    def analyze_signal(self, frequencies, powers, iq_data):
+        # Trova picchi significativi nello spettro
+        peak_indices = signal.find_peaks(powers, height=-40, distance=10)[0]
+        if not len(peak_indices):
+            return None
+            
+        # Analizza il picco più forte
+        main_peak_idx = peak_indices[np.argmax(powers[peak_indices])]
+        peak_freq = frequencies[main_peak_idx]
+        peak_power = powers[main_peak_idx]
+        
+        # Calcola larghezza di banda
+        bandwidth = self._estimate_bandwidth(frequencies, powers, main_peak_idx)
+        
+        # Analizza caratteristiche IQ
+        i_data, q_data = np.array(iq_data['i']), np.array(iq_data['q'])
+        phase_var = np.var(np.angle(i_data + 1j*q_data))
+        iq_var_ratio = np.var(i_data) / (np.var(q_data) + 1e-10)
+        
+        # Identifica modulazione
+        mod_type, confidence = self._identify_modulation(
+            bandwidth/frequencies[1], 
+            iq_var_ratio,
+            phase_var
+        )
+        
+        return SignalFeatures(
+            bandwidth=bandwidth,
+            peak_power=peak_power,
+            modulation_type=mod_type,
+            confidence=confidence
+        )
+    
+    def _estimate_bandwidth(self, freqs, powers, peak_idx):
+        threshold = powers[peak_idx] - 3  # -3dB threshold
+        left_idx = peak_idx
+        right_idx = peak_idx
+        
+        while left_idx > 0 and powers[left_idx] > threshold:
+            left_idx -= 1
+        while right_idx < len(powers)-1 and powers[right_idx] > threshold:
+            right_idx += 1
+            
+        return freqs[right_idx] - freqs[left_idx]
+    
+    def _identify_modulation(self, bw_ratio, iq_var_ratio, phase_var):
+        scores = {}
+        for mod_type, pattern in self.modulation_patterns.items():
+            score = 0
+            if abs(pattern['bandwidth_ratio'] - bw_ratio) < 0.05:
+                score += 0.4
+            if 'iq_variance_ratio' in pattern and abs(pattern['iq_variance_ratio'] - iq_var_ratio) < 0.1:
+                score += 0.3
+            if 'iq_phase_var' in pattern and abs(pattern['iq_phase_var'] - phase_var) < 0.1:
+                score += 0.3
+            scores[mod_type] = score
+        
+        best_mod = max(scores.items(), key=lambda x: x[1])
+        return best_mod[0], best_mod[1]
 
 class SDRHandler:
     def __init__(self):
@@ -20,6 +100,8 @@ class SDRHandler:
         self.recovery_event = Event()
         self.consecutive_errors = 0
         self.max_consecutive_errors = 3
+        self.classifier = SignalClassifier()
+
         
         self.data = {
             'frequencies': [],
@@ -264,7 +346,7 @@ class SDRHandler:
 
     def get_data(self):
         with self.data_lock:
-            return {
+            data = {
                 'frequencies': self.data['frequencies'],
                 'powers': self.data['powers'],
                 'iq_data': self.data['iq_data'],
@@ -274,6 +356,22 @@ class SDRHandler:
                     'gain': self.sdr.gain if self.sdr else 'auto'
                 }
             }
+        
+            signal_info = self.classifier.analyze_signal(
+                self.data['frequencies'],
+                self.data['powers'],
+                self.data['iq_data']
+            )
+        
+            if signal_info:
+                data['signal_info'] = {
+                    'modulation': signal_info.modulation_type,
+                    'bandwidth': signal_info.bandwidth,
+                    'peak_power': signal_info.peak_power,
+                    'confidence': signal_info.confidence
+                }
+            
+            return data
 
 
     def cleanup(self):

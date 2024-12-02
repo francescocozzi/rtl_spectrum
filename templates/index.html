@@ -1,17 +1,31 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RTL-SDR Spectrum Analyzer</title>
+    
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Plotly.js -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    
     <style>
         .chart-container {
             height: 400px;
             margin-bottom: 20px;
         }
+        
         .iq-container {
             height: 300px;
             margin-bottom: 20px;
+        }
+        
+        .signal-info {
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #f8f9fa;
         }
     </style>
 </head>
@@ -21,47 +35,53 @@
         
         <div class="row mb-3">
             <div class="col-md-4">
-                <label for="centerFreq" class="form-label">Frequenza Centrale (MHz)</label>
-                <input type="number" class="form-control" id="centerFreq" value="433">
+                <div class="form-group">
+                    <label for="centerFreq">Frequenza Centrale (MHz)</label>
+                    <input type="number" class="form-control" id="centerFreq" value="100">
+                </div>
             </div>
+            
             <div class="col-md-4">
-                <label for="sampleRate" class="form-label">Sample Rate (MS/s)</label>
-                <input type="number" class="form-control" id="sampleRate" value="2.4" step="0.1">
+                <div class="form-group">
+                    <label for="sampleRate">Sample Rate (MS/s)</label>
+                    <input type="number" class="form-control" id="sampleRate" value="2.4">
+                </div>
             </div>
+            
             <div class="col-md-4">
-                <label for="gain" class="form-label">Gain (dB)</label>
-                <select class="form-control" id="gain">
-                    <option value="auto">Auto</option>
-                    <option value="0">0 dB</option>
-                    <option value="10">10 dB</option>
-                    <option value="20">20 dB</option>
-                    <option value="30">30 dB</option>
-                </select>
+                <div class="form-group">
+                    <label for="gain">Gain (dB)</label>
+                    <select class="form-control" id="gain">
+                        <option value="auto">Auto</option>
+                        <option value="0">0 dB</option>
+                        <option value="10">10 dB</option>
+                        <option value="20">20 dB</option>
+                        <option value="30">30 dB</option>
+                    </select>
+                </div>
             </div>
         </div>
-
+        
         <div class="row mb-3">
             <div class="col">
-                <button class="btn btn-primary" onclick="updateParams()">Aggiorna Parametri</button>
+                <button id="updateParams" class="btn btn-primary">Aggiorna Parametri</button>
             </div>
         </div>
-
+        
         <div id="statusMessage" class="alert d-none" role="alert"></div>
-
+        
         <div class="row mb-3">
             <div class="col">
-                <p id="currentSettings" class="text-muted">
-                    <strong>Impostazioni Attuali:</strong> Caricamento...
-                </p>
+                <p><strong>Impostazioni Attuali:</strong> <span id="currentSettings">Caricamento...</span></p>
             </div>
         </div>
-
+        
         <div class="row">
             <div class="col-12">
                 <div id="spectrumChart" class="chart-container"></div>
             </div>
         </div>
-
+        
         <div class="row">
             <div class="col-md-6">
                 <div id="iqTimeChart" class="iq-container"></div>
@@ -70,107 +90,155 @@
                 <div id="iqConstellation" class="iq-container"></div>
             </div>
         </div>
+
+        <!-- Sezione Analisi del Segnale -->
+        <div class="row">
+            <div class="col-12">
+                <div id="signalAnalysis" class="mt-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4 class="mb-0">Analisi del Segnale</h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="signal-info">
+                                        <strong>Modulazione:</strong><br>
+                                        <span id="modulation">-</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="signal-info">
+                                        <strong>Larghezza di banda:</strong><br>
+                                        <span id="bandwidth">-</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="signal-info">
+                                        <strong>Potenza di picco:</strong><br>
+                                        <span id="peakPower">-</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="signal-info">
+                                        <strong>Confidenza:</strong><br>
+                                        <span id="confidence">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
-        let spectrumChart = null;
-        let iqTimeChart = null;
-        let iqConstellation = null;
-
-        // Inizializzazione grafici
-        function initCharts() {
-            // Spettro
-            Plotly.newPlot('spectrumChart', [{
-                x: [],
-                y: [],
-                mode: 'lines',
-                name: 'Potenza (dB)'
-            }], {
-                title: 'Spettro',
-                xaxis: { title: 'Frequenza (MHz)' },
-                yaxis: { title: 'Potenza (dB)', range: [-70, 0] }
-            });
-
-            // IQ nel tempo
-            Plotly.newPlot('iqTimeChart', [
-                {
-                    x: [],
-                    y: [],
-                    mode: 'lines',
-                    name: 'I'
-                },
-                {
-                    x: [],
-                    y: [],
-                    mode: 'lines',
-                    name: 'Q'
-                }
-            ], {
-                title: 'Segnale IQ nel tempo',
-                xaxis: { title: 'Tempo (s)' },
-                yaxis: { title: 'Ampiezza', range: [-1, 1] }
-            });
-
-            // Costellazione IQ
-            Plotly.newPlot('iqConstellation', [{
-                x: [],
-                y: [],
-                mode: 'markers',
-                type: 'scatter',
-                name: 'IQ'
-            }], {
-                title: 'Costellazione IQ',
-                xaxis: { title: 'I', range: [-1, 1] },
-                yaxis: { title: 'Q', range: [-1, 1] },
-                shapes: [{
-                    type: 'circle',
-                    x0: -1, y0: -1,
-                    x1: 1, y1: 1,
-                    line: {
-                        color: 'rgba(128, 128, 128, 0.5)',
-                        dash: 'dash'
-                    }
-                }]
-            });
+        let updateTimer;
+        const statusMessage = document.getElementById('statusMessage');
+        
+        // Funzione per mostrare messaggi di stato
+        function showStatus(message, isError = false) {
+            statusMessage.textContent = message;
+            statusMessage.className = `alert ${isError ? 'alert-danger' : 'alert-success'}`;
+            statusMessage.classList.remove('d-none');
+            setTimeout(() => statusMessage.classList.add('d-none'), 3000);
         }
-
-        function updateCharts() {
+        
+        // Funzione per aggiornare l'analisi del segnale
+        function updateSignalAnalysis(signalInfo) {
+            if (signalInfo) {
+                document.getElementById('modulation').textContent = signalInfo.modulation;
+                document.getElementById('bandwidth').textContent = `${(signalInfo.bandwidth/1e6).toFixed(2)} MHz`;
+                document.getElementById('peakPower').textContent = `${signalInfo.peak_power.toFixed(1)} dB`;
+                document.getElementById('confidence').textContent = `${(signalInfo.confidence * 100).toFixed(0)}%`;
+            }
+        }
+        
+        // Funzione per aggiornare lo spettro
+        function updateSpectrum() {
             fetch('/get_spectrum')
                 .then(response => response.json())
                 .then(data => {
-                    // Aggiorna spettro
-                    Plotly.update('spectrumChart', {
-                        x: [data.frequencies],
-                        y: [data.powers]
-                    });
-
-                    // Aggiorna grafici IQ
-                    Plotly.update('iqTimeChart', {
-                        x: [[...data.iq_data.time], [...data.iq_data.time]],
-                        y: [[...data.iq_data.i], [...data.iq_data.q]]
-                    });
-
-                    Plotly.update('iqConstellation', {
-                        x: [data.iq_data.i],
-                        y: [data.iq_data.q]
-                    });
-
                     // Aggiorna impostazioni correnti
-                    document.getElementById('currentSettings').innerHTML = 
-                        `<strong>Impostazioni Attuali:</strong> Freq: ${data.current_settings.center_freq.toFixed(1)} MHz, ` +
-                        `Rate: ${data.current_settings.sample_rate.toFixed(1)} MS/s, ` +
-                        `Gain: ${data.current_settings.gain}`;
+                    const settings = data.current_settings;
+                    document.getElementById('currentSettings').textContent = 
+                        `Freq: ${settings.center_freq.toFixed(2)} MHz, Rate: ${settings.sample_rate.toFixed(2)} MS/s, Gain: ${settings.gain}`;
+                    
+                    // Aggiorna grafico spettro
+                    Plotly.newPlot('spectrumChart', [{
+                        x: data.frequencies,
+                        y: data.powers,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Spectrum'
+                    }], {
+                        title: 'Spettro RF',
+                        xaxis: { title: 'Frequenza (MHz)' },
+                        yaxis: { title: 'Potenza (dB)' }
+                    });
+                    
+                    // Aggiorna grafici IQ
+                    const iqData = data.iq_data;
+                    
+                    // Grafico temporale IQ
+                    Plotly.newPlot('iqTimeChart', [
+                        {
+                            x: iqData.time,
+                            y: iqData.i,
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'I'
+                        },
+                        {
+                            x: iqData.time,
+                            y: iqData.q,
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'Q'
+                        }
+                    ], {
+                        title: 'IQ Time Domain',
+                        xaxis: { title: 'Tempo (s)' },
+                        yaxis: { title: 'Ampiezza' }
+                    });
+                    
+                    // Costellazione IQ
+                    Plotly.newPlot('iqConstellation', [{
+                        x: iqData.i,
+                        y: iqData.q,
+                        type: 'scatter',
+                        mode: 'markers',
+                        marker: { size: 3 },
+                        name: 'IQ'
+                    }], {
+                        title: 'IQ Constellation',
+                        xaxis: { title: 'I' },
+                        yaxis: { title: 'Q' }
+                    });
+                    
+                    // Aggiorna analisi del segnale
+                    if (data.signal_info) {
+                        updateSignalAnalysis(data.signal_info);
+                    }
                 })
-                .catch(console.error);
+                .catch(error => {
+                    console.error('Errore nel recupero dei dati:', error);
+                    showStatus('Errore nel recupero dei dati', true);
+                });
         }
-
-        function updateParams() {
+        
+        // Gestione aggiornamento parametri
+        document.getElementById('updateParams').addEventListener('click', () => {
             const params = {
                 center_freq: parseFloat(document.getElementById('centerFreq').value) * 1e6,
                 sample_rate: parseFloat(document.getElementById('sampleRate').value) * 1e6,
                 gain: document.getElementById('gain').value
             };
-
+            
             fetch('/update_params', {
                 method: 'POST',
                 headers: {
@@ -180,30 +248,31 @@
             })
             .then(response => response.json())
             .then(data => {
-                const statusDiv = document.getElementById('statusMessage');
                 if (data.status === 'success') {
-                    statusDiv.className = 'alert alert-success';
-                    statusDiv.textContent = 'Parametri aggiornati con successo';
+                    showStatus('Parametri aggiornati con successo');
                 } else {
-                    statusDiv.className = 'alert alert-danger';
-                    statusDiv.textContent = data.message || 'Errore nell\'aggiornamento dei parametri';
+                    showStatus(data.message || 'Errore nell\'aggiornamento dei parametri', true);
                 }
-                statusDiv.classList.remove('d-none');
-                setTimeout(() => statusDiv.classList.add('d-none'), 3000);
             })
             .catch(error => {
-                console.error('Error:', error);
-                const statusDiv = document.getElementById('statusMessage');
-                statusDiv.className = 'alert alert-danger';
-                statusDiv.textContent = 'Errore nella comunicazione con il server';
-                statusDiv.classList.remove('d-none');
-                setTimeout(() => statusDiv.classList.add('d-none'), 3000);
+                console.error('Errore:', error);
+                showStatus('Errore nella comunicazione con il server', true);
             });
+        });
+        
+        // Avvio aggiornamento periodico
+        function startUpdates() {
+            updateSpectrum();
+            updateTimer = setInterval(updateSpectrum, 100);
         }
-
-        // Inizializza i grafici e avvia l'aggiornamento periodico
-        initCharts();
-        setInterval(updateCharts, 100);
+        
+        // Gestione dell'uscita
+        window.addEventListener('beforeunload', () => {
+            clearInterval(updateTimer);
+        });
+        
+        // Avvio iniziale
+        startUpdates();
     </script>
 </body>
 </html>
