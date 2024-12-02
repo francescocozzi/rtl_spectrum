@@ -25,12 +25,54 @@ class SignalClassifier:
             'QAM': {'bandwidth_ratio': 0.12, 'iq_constellation': 'square'}
         }
 
+    def _identify_modulation(self, bw_ratio, iq_var_ratio, phase_var):
+        """
+        Identifica il tipo di modulazione basandosi sui parametri del segnale
+        
+        Args:
+            bw_ratio (float): Rapporto di banda
+            iq_var_ratio (float): Rapporto di varianza I/Q
+            phase_var (float): Varianza della fase
+            
+        Returns:
+            tuple: (tipo_modulazione, confidenza)
+        """
+        scores = {}
+        
+        # Calcola un punteggio per ogni tipo di modulazione
+        for mod_type, pattern in self.modulation_patterns.items():
+            score = 0
+            
+            # Valuta il rapporto di banda
+            if 'bandwidth_ratio' in pattern:
+                bandwidth_score = 1 - min(abs(pattern['bandwidth_ratio'] - bw_ratio) / 0.1, 1)
+                score += 0.4 * bandwidth_score
+            
+            # Valuta il rapporto di varianza I/Q
+            if 'iq_variance_ratio' in pattern:
+                variance_score = 1 - min(abs(pattern['iq_variance_ratio'] - iq_var_ratio) / 0.2, 1)
+                score += 0.3 * variance_score
+            
+            # Valuta la varianza della fase
+            if 'iq_phase_var' in pattern:
+                phase_score = 1 - min(abs(pattern['iq_phase_var'] - phase_var) / 0.2, 1)
+                score += 0.3 * phase_score
+                
+            scores[mod_type] = max(0, min(score, 1))  # Normalizza tra 0 e 1
+        
+        # Trova la modulazione con il punteggio più alto
+        if not scores:
+            return 'Unknown', 0.0
+            
+        best_mod = max(scores.items(), key=lambda x: x[1])
+        return best_mod[0], best_mod[1]
+
     def analyze_signal(self, frequencies, powers, iq_data):
         try:
             powers_array = np.array(powers)
             frequencies_array = np.array(frequencies)
             
-            # Trova picchi significativi usando parametri più robusti
+            # Trova picchi significativi
             peak_indices = signal.find_peaks(powers_array, 
                                            height=np.mean(powers_array) + np.std(powers_array),
                                            distance=int(len(powers_array) * 0.05))[0]
@@ -41,9 +83,10 @@ class SignalClassifier:
             peak_powers = powers_array[peak_indices]
             max_peak_idx = peak_indices[int(np.argmax(peak_powers))]
             
+            # Calcola larghezza di banda
             bandwidth = self._estimate_bandwidth(frequencies_array, powers_array, max_peak_idx)
             
-            # Gestione più robusta dei dati IQ
+            # Analisi I/Q
             i_data = np.array(iq_data.get('i', []))
             q_data = np.array(iq_data.get('q', []))
             
@@ -55,11 +98,12 @@ class SignalClassifier:
                     confidence=0.0
                 )
             
-            # Calcolo più robusto delle caratteristiche IQ
+            # Calcolo caratteristiche I/Q
             complex_signal = i_data + 1j*q_data
             phase_var = np.var(np.angle(complex_signal))
             iq_var_ratio = np.var(i_data) / (np.var(q_data) + 1e-10)
             
+            # Identifica modulazione
             mod_type, confidence = self._identify_modulation(
                 bandwidth/(frequencies_array[1] - frequencies_array[0]), 
                 iq_var_ratio,
@@ -79,7 +123,7 @@ class SignalClassifier:
 
     def _estimate_bandwidth(self, freqs, powers, peak_idx):
         try:
-            # Usa una soglia dinamica basata sul rumore
+            # Calcola soglia dinamica
             noise_floor = np.median(powers)
             threshold = powers[peak_idx] - 3  # -3dB threshold
             threshold = max(threshold, noise_floor + 6)  # almeno 6dB sopra il rumore
@@ -93,6 +137,7 @@ class SignalClassifier:
                 right_idx += 1
                 
             return abs(freqs[right_idx] - freqs[left_idx])
+            
         except Exception as e:
             print(f"Error in bandwidth estimation: {e}")
             return 0.0
