@@ -99,45 +99,43 @@
         </div>
 
         <!-- Sezione Analisi del Segnale -->
-        <div class="row">
-            <div class="col-12">
-                <div id="signalAnalysis" class="mt-4">
-                    <div class="card">
-                        <div class="card-header">
-                            <h4 class="mb-0">Analisi del Segnale</h4>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-3">
-                                    <div class="signal-info">
-                                        <strong>Modulazione:</strong><br>
-                                        <span id="modulation">-</span>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="signal-info">
-                                        <strong>Larghezza di banda:</strong><br>
-                                        <span id="bandwidth">-</span>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="signal-info">
-                                        <strong>Potenza di picco:</strong><br>
-                                        <span id="peakPower">-</span>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="signal-info">
-                                        <strong>Confidenza:</strong><br>
-                                        <span id="confidence">-</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+				<div class="row mt-3">
+				    <div class="col">
+				        <div class="card">
+				            <div class="card-header">
+				                <h5 class="mb-0">Analisi Segnale Selezionato</h5>
+				            </div>
+				            <div class="card-body">
+				                <div class="row">
+				                    <div class="col-md-3">
+				                        <div class="signal-info">
+				                            <strong>Frequenza Centrale:</strong>
+				                            <span id="selectedFreq">-</span> MHz
+				                        </div>
+				                    </div>
+				                    <div class="col-md-3">
+				                        <div class="signal-info">
+				                            <strong>Modulazione:</strong>
+				                            <span id="modulation">-</span>
+				                        </div>
+				                    </div>
+				                    <div class="col-md-3">
+				                        <div class="signal-info">
+				                            <strong>Larghezza di banda:</strong>
+				                            <span id="bandwidth">-</span>
+				                        </div>
+				                    </div>
+				                    <div class="col-md-3">
+				                        <div class="signal-info">
+				                            <strong>Confidenza:</strong>
+				                            <span id="confidence">-</span>
+				                        </div>
+				                    </div>
+				                </div>
+				            </div>
+				        </div>
+				    </div>
+				</div>
     </div>
 
     <!-- Bootstrap Bundle with Popper -->
@@ -175,18 +173,50 @@
                     document.getElementById('currentSettings').textContent = 
                         `Freq: ${settings.center_freq.toFixed(2)} MHz, Rate: ${settings.sample_rate.toFixed(2)} MS/s, Gain: ${settings.gain}`;
                     
-                    // Aggiorna grafico spettro
-                    Plotly.newPlot('spectrumChart', [{
-                        x: data.frequencies,
-                        y: data.powers,
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'Spectrum'
-                    }], {
-                        title: 'Spettro RF',
-                        xaxis: { title: 'Frequenza (MHz)' },
-                        yaxis: { title: 'Potenza (dB)' }
-                    });
+												// Nel codice JavaScript esistente, modifichiamo la creazione del grafico spettro
+												Plotly.newPlot('spectrumChart', [{
+												    x: data.frequencies,
+												    y: data.powers,
+												    type: 'scatter',
+												    mode: 'lines',
+												    name: 'Spectrum'
+												}], {
+												    title: 'Spettro RF',
+												    xaxis: { 
+												        title: 'Frequenza (MHz)',
+												        rangeslider: {}, // Aggiunge uno slider per lo zoom
+												    },
+												    yaxis: { title: 'Potenza (dB)' },
+												    dragmode: 'select',  // Abilita la selezione
+												}, {
+												    modeBarButtonsToAdd: [{
+												        name: 'Analizza segnale selezionato',
+												        icon: Plotly.Icons.zoom,
+												        click: function(gd) {
+												            analyzeSelectedSignal(gd);
+												        }
+												    }]
+												});
+
+												// Funzione per gestire la selezione
+												function analyzeSelectedSignal(gd) {
+												    const selection = gd.layout.xaxis.range;
+												    if (!selection) return;
+
+												    const [startFreq, endFreq] = selection;
+												    fetch('/analyze_signal', {
+												        method: 'POST',
+												        headers: {
+												            'Content-Type': 'application/json'
+												        },
+												        body: JSON.stringify({
+												            start_freq: startFreq,
+												            end_freq: endFreq
+												        })
+												    })
+												    .then(response => response.json())
+												    .then(data => updateSignalAnalysis(data));
+												}
                     
                     // Aggiorna grafici IQ
                     const iqData = data.iq_data;

@@ -443,3 +443,40 @@ def update_params():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+@app.route('/analyze_signal', methods=['POST'])
+def analyze_specific_signal():
+    try:
+        data = request.get_json()
+        start_freq = float(data['start_freq'])
+        end_freq = float(data['end_freq'])
+        
+        with sdr_handler.data_lock:
+            # Troviamo gli indici corrispondenti all'intervallo di frequenza
+            freqs = np.array(sdr_handler.data['frequencies'])
+            powers = np.array(sdr_handler.data['powers'])
+            
+            mask = (freqs >= start_freq) & (freqs <= end_freq)
+            
+            if not any(mask):
+                return jsonify({'error': 'Nessun dato nella selezione'}), 400
+            
+            # Analizziamo solo la porzione selezionata
+            signal_info = sdr_handler.classifier.analyze_signal(
+                freqs[mask],
+                powers[mask],
+                sdr_handler.data['iq_data']
+            )
+            
+            if signal_info:
+                return jsonify({
+                    'modulation': signal_info.modulation_type,
+                    'bandwidth': float(signal_info.bandwidth),
+                    'peak_power': float(signal_info.peak_power),
+                    'confidence': float(signal_info.confidence),
+                    'center_freq': (start_freq + end_freq) / 2
+                })
+            else:
+                return jsonify({'error': 'Nessun segnale rilevato nella selezione'}), 400
+                
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
