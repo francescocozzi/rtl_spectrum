@@ -4,52 +4,76 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RTL-SDR Spectrum Analyzer</title>
-    
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- Plotly.js -->
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         .chart-container {
             height: 400px;
             margin-bottom: 20px;
         }
-        
         .iq-container {
             height: 300px;
             margin-bottom: 20px;
         }
-        
         .signal-info {
             padding: 10px;
+            border-radius: 5px;
             background-color: #f8f9fa;
-            border-radius: 4px;
-            margin-bottom: 10px;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .chart-wrapper {
+            position: relative;
+        }
+        .error-message {
+            color: #dc3545;
+            margin-top: 5px;
+            font-size: 0.875rem;
+        }
+        .update-success {
+            animation: flash-success 1s;
+        }
+        @keyframes flash-success {
+            0% { background-color: #d4edda; }
+            100% { background-color: transparent; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1 id="rtl-sdr-spectrum-analyzer" class="mt-4 mb-4">RTL-SDR Spectrum Analyzer</h1>
+    <div class="container py-4">
+        <h1 class="mb-4">RTL-SDR Spectrum Analyzer</h1>
 
         <div class="row mb-3">
             <div class="col-md-4">
                 <div class="form-group">
                     <label for="centerFreq">Frequenza Centrale (MHz)</label>
-                    <input type="number" class="form-control" id="centerFreq" value="100" step="0.1">
+                    <input type="number" class="form-control" id="centerFreq" step="0.1" min="24" max="1766">
                     <small class="text-muted">Usa il punto per i decimali (es. 100.7)</small>
+                    <div class="error-message" id="freqError"></div>
                 </div>
             </div>
-
             <div class="col-md-4">
                 <div class="form-group">
                     <label for="sampleRate">Sample Rate (MS/s)</label>
-                    <input type="number" class="form-control" id="sampleRate" value="2.4" step="0.1">
+                    <select class="form-control" id="sampleRate">
+                        <option value="1.0">1.0</option>
+                        <option value="1.6">1.6</option>
+                        <option value="2.0">2.0</option>
+                        <option value="2.4" selected>2.4</option>
+                    </select>
+                    <div class="error-message" id="rateError"></div>
                 </div>
             </div>
-
             <div class="col-md-4">
                 <div class="form-group">
                     <label for="gain">Gain (dB)</label>
@@ -60,36 +84,64 @@
                         <option value="20">20 dB</option>
                         <option value="30">30 dB</option>
                     </select>
+                    <div class="error-message" id="gainError"></div>
                 </div>
             </div>
         </div>
 
         <div class="row mb-3">
             <div class="col">
-                <button id="updateParams" class="btn btn-primary">Aggiorna Parametri</button>
+                <button id="updateParams" class="btn btn-primary">
+                    <i class="fas fa-sync-alt"></i> Aggiorna Parametri
+                </button>
+                <div id="updateStatus" class="mt-2"></div>
             </div>
         </div>
 
-        <div id="statusMessage" class="alert d-none" role="alert"></div>
+        <div class="alert alert-info" role="alert" id="deviceStatus">
+            <i class="fas fa-info-circle"></i> Connessione al dispositivo...
+        </div>
 
         <div class="row mb-3">
             <div class="col">
-                <p><strong>Impostazioni Attuali:</strong> <span id="currentSettings">Caricamento...</span></p>
+                <strong>Impostazioni Attuali:</strong>
+                <span id="currentSettings">Caricamento...</span>
             </div>
         </div>
 
         <div class="row">
             <div class="col-12">
-                <div id="spectrumChart" class="chart-container"></div>
+                <div class="chart-wrapper">
+                    <div id="spectrumChart" class="chart-container"></div>
+                    <div class="loading-overlay" id="spectrumLoading">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="row">
             <div class="col-md-6">
-                <div id="iqTimeChart" class="iq-container"></div>
+                <div class="chart-wrapper">
+                    <div id="iqTimeChart" class="iq-container"></div>
+                    <div class="loading-overlay" id="iqTimeLoading">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="col-md-6">
-                <div id="iqConstellation" class="iq-container"></div>
+                <div class="chart-wrapper">
+                    <div id="iqConstellation" class="iq-container"></div>
+                    <div class="loading-overlay" id="iqConstellationLoading">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -132,177 +184,393 @@
         </div>
     </div>
 
-    <!-- Bootstrap Bundle with Popper -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <script>
-        let updateTimer;
-        const statusMessage = document.getElementById('statusMessage');
-        
-        // Funzione per mostrare messaggi di stato
-        function showStatus(message, isError = false) {
-            statusMessage.textContent = message;
-            statusMessage.className = `alert ${isError ? 'alert-danger' : 'alert-success'}`;
-            statusMessage.classList.remove('d-none');
-            setTimeout(() => statusMessage.classList.add('d-none'), 3000);
-        }
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.24.1/plotly.min.js"></script>
 
-        // Funzione per aggiornare i grafici IQ
-        function updateIQPlots(iqData) {
-            // Grafico temporale IQ
-            Plotly.newPlot('iqTimeChart', [
+    <script>
+        let spectrumChart = null;
+        let iqTimeChart = null;
+        let iqConstellationChart = null;
+        let updateInterval = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+
+        function initCharts() {
+            // Inizializzazione grafico spettro
+            spectrumChart = Plotly.newPlot('spectrumChart', [{
+                x: [],
+                y: [],
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Spettro'
+            }], {
+                title: 'Spettro RF',
+                xaxis: { title: 'Frequenza (MHz)' },
+                yaxis: { title: 'Potenza (dB)', range: [-70, 0] },
+                margin: { t: 40 },
+                showlegend: false
+            });
+
+            // Inizializzazione grafico IQ nel tempo
+            iqTimeChart = Plotly.newPlot('iqTimeChart', [
                 {
-                    x: iqData.time,
-                    y: iqData.i,
+                    y: [],
                     type: 'scatter',
                     mode: 'lines',
-                    name: 'I'
+                    name: 'I',
+                    line: { color: '#1f77b4' }
                 },
                 {
-                    x: iqData.time,
-                    y: iqData.q,
+                    y: [],
                     type: 'scatter',
                     mode: 'lines',
-                    name: 'Q'
+                    name: 'Q',
+                    line: { color: '#ff7f0e' }
                 }
             ], {
-                title: 'IQ Time Domain',
-                xaxis: { title: 'Tempo (s)' },
-                yaxis: { title: 'Ampiezza' }
+                title: 'Segnale IQ nel Tempo',
+                xaxis: { title: 'Campioni' },
+                yaxis: { title: 'Ampiezza' },
+                margin: { t: 40 }
             });
 
-            // Costellazione IQ
-            Plotly.newPlot('iqConstellation', [{
-                x: iqData.i,
-                y: iqData.q,
+            // Inizializzazione grafico costellazione IQ
+            iqConstellationChart = Plotly.newPlot('iqConstellation', [{
+                x: [],
+                y: [],
                 type: 'scatter',
                 mode: 'markers',
-                marker: { size: 3 },
-                name: 'IQ'
+                marker: {
+                    size: 3,
+                    color: '#1f77b4'
+                }
             }], {
-                title: 'IQ Constellation',
+                title: 'Costellazione IQ',
                 xaxis: { title: 'I' },
-                yaxis: { title: 'Q' }
+                yaxis: { title: 'Q' },
+                margin: { t: 40 },
+                showlegend: false
             });
         }
 
-        // Funzione per aggiornare lo spettro
-        function updateSpectrum() {
+        function updateCharts() {
+            showLoading(true);
             fetch('/get_spectrum')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.error) {
-                        showStatus(data.error, true);
-                        return;
+                        throw new Error(data.error);
                     }
 
-                    // Aggiorna impostazioni correnti
-                    const settings = data.current_settings;
-                    document.getElementById('currentSettings').textContent = 
-                        `Freq: ${settings.center_freq.toFixed(2)} MHz, Rate: ${settings.sample_rate.toFixed(2)} MS/s, Gain: ${settings.gain}`;
+                    updateSpectrumChart(data);
+                    updateIQCharts(data.iq_data);
+                    updateSignalInfo(data.signal_info);
+                    updateCurrentSettings(data.current_settings);
                     
-                    // Aggiorna grafico spettro con supporto selezione
-                    Plotly.newPlot('spectrumChart', [{
-                        x: data.frequencies,
-                        y: data.powers,
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'Spectrum'
-                    }], {
-                        title: 'Spettro RF',
-                        xaxis: { 
-                            title: 'Frequenza (MHz)',
-                            rangeslider: {}
-                        },
-                        yaxis: { title: 'Potenza (dB)' },
-                        dragmode: 'select'
-                    });
-
-                    // Aggiorna grafici IQ
-                    updateIQPlots(data.iq_data);
+                    reconnectAttempts = 0;
+                    showDeviceStatus('connected');
                 })
                 .catch(error => {
-                    console.error('Errore nel recupero dei dati:', error);
-                    showStatus('Errore nel recupero dei dati', true);
+                    console.error('Error fetching spectrum:', error);
+                    reconnectAttempts++;
+                    
+                    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                        stopUpdates();
+                        showDeviceStatus('error');
+                    } else {
+                        showDeviceStatus('reconnecting');
+                    }
+                })
+                .finally(() => {
+                    showLoading(false);
                 });
         }
 
-        // Gestione della selezione sullo spettro
-        document.getElementById('spectrumChart').on('plotly_selected', function(eventData) {
-            if (!eventData || !eventData.range) return;
-
-            const range = eventData.range.x;
-            fetch('/analyze_signal', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    start_freq: range[0],
-                    end_freq: range[1]
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showStatus(data.error, true);
-                    return;
-                }
-                
-                // Aggiorna i campi dell'analisi
-                document.getElementById('selectedFreq').textContent = data.center_freq.toFixed(3);
-                document.getElementById('modulation').textContent = data.modulation;
-                document.getElementById('bandwidth').textContent = data.bandwidth.toFixed(3) + ' MHz';
-                document.getElementById('confidence').textContent = (data.confidence * 100).toFixed(1) + '%';
-            })
-            .catch(error => {
-                console.error('Errore nell\'analisi del segnale:', error);
-                showStatus('Errore nell\'analisi del segnale', true);
+        function updateSpectrumChart(data) {
+            Plotly.update('spectrumChart', {
+                x: [data.frequencies],
+                y: [data.powers]
             });
-        });
-
-        // Gestione aggiornamento parametri
-        document.getElementById('updateParams').addEventListener('click', () => {
-            const params = {
-                center_freq: parseFloat(document.getElementById('centerFreq').value) * 1e6,
-                sample_rate: parseFloat(document.getElementById('sampleRate').value) * 1e6,
-                gain: document.getElementById('gain').value
-            };
-            
-            fetch('/update_params', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(params)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showStatus('Parametri aggiornati con successo');
-                } else {
-                    showStatus(data.message || 'Errore nell\'aggiornamento dei parametri', true);
-                }
-            })
-            .catch(error => {
-                console.error('Errore:', error);
-                showStatus('Errore nella comunicazione con il server', true);
-            });
-        });
-
-        // Funzione per avviare gli aggiornamenti periodici
-        function startUpdates() {
-            updateSpectrum();
-            updateTimer = setInterval(updateSpectrum, 100);
         }
 
-        // Gestione dell'uscita
-        window.addEventListener('beforeunload', () => {
-            clearInterval(updateTimer);
-        });
+        function updateIQCharts(iqData) {
+            // Aggiorna grafico IQ nel tempo
+            Plotly.update('iqTimeChart', {
+                y: [iqData.i, iqData.q]
+            });
 
-        // Avvio iniziale
-        startUpdates();
-    </script>
-</body>
-</html>
+            // Aggiorna costellazione IQ
+            Plotly.update('iqConstellation', {
+                x: [iqData.i],
+                y: [iqData.q]
+            });
+        }
+
+        function updateSignalInfo(signalInfo) {
+            if (signalInfo) {
+                $('#selectedFreq').text(signalInfo.center_freq?.toFixed(3) || '-');
+                $('#modulation').text(signalInfo.modulation || '-');
+                $('#bandwidth').text(signalInfo.bandwidth?.toFixed(2) + ' MHz' || '-');
+                $('#confidence').text((signalInfo.confidence * 100).toFixed(1) + '%' || '-');
+            } else {
+                $('#selectedFreq, #modulation, #bandwidth, #confidence').text('-');
+            }
+        }
+
+        function updateCurrentSettings(settings) {
+            if (settings) {
+                $('#currentSettings').html(
+                    `Freq: ${settings.center_freq.toFixed(3)} MHz, ` +
+                    `Rate: ${settings.sample_rate.toFixed(1)} MS/s, ` +
+                    `Gain: ${settings.gain === 'auto' ? 'Auto' : settings.gain + ' dB'}`
+                );
+            }
+        }
+
+        function showLoading(show) {
+            $('.loading-overlay').css('display', show ? 'flex' : 'none');
+        }
+
+        function showDeviceStatus(status) {
+            const statusEl = $('#deviceStatus');
+            switch (status) {
+                case 'connected':
+                    statusEl.removeClass('alert-info alert-danger alert-warning')
+                           .addClass('alert-success')
+                           .html('<i class="fas fa-check-circle"></i> Dispositivo connesso e funzionante');
+                    break;
+                case 'reconnecting':
+                    statusEl.removeClass('alert-success alert-danger alert-info')
+                           .addClass('alert-warning')
+                           .html('<i class="fas fa-sync fa-spin"></i> Tentativo di riconnessione...');
+                    break;
+                case 'error':
+                    statusEl.removeClass('alert-success alert-warning alert-info')
+                           .addClass('alert-danger')
+                           .html('<i class="fas fa-exclamation-triangle"></i> Errore di connessione al dispositivo');
+                    break;
+                default:
+                    statusEl.removeClass('alert-success alert-danger alert-warning')
+                           .addClass('alert-info')
+                           .html('<i class="fas fa-info-circle"></i> Connessione al dispositivo...');
+            }
+        }
+
+        function validateParams() {
+            let isValid = true;
+            const freq = parseFloat($('#centerFreq').val());
+            const rate = parseFloat($('#sampleRate').val());
+            const gain = $('#gain').val();
+
+            // Validazione frequenza
+            if (isNaN(freq) || freq < 24 || freq > 1766) {
+                $('#freqError').text('Frequenza deve essere tra 24 e 1766 MHz');
+                isValid = false;
+            } else {
+                $('#freqError').text('');
+            }
+
+            // Validazione sample rate
+            if (isNaN(rate) || rate < 1.0 || rate > 2.4) {
+                $('#rateError').text('Sample rate non valido');
+                isValid = false;
+            } else {
+                $('#rateError').text('');
+            }
+
+            // Validazione gain
+            if (gain !== 'auto' && (isNaN(parseFloat(gain)) || parseFloat(gain) < 0 || parseFloat(gain) > 30)) {
+							$('#gainError').text('Gain non valido');
+							                isValid = false;
+							            } else {
+							                $('#gainError').text('');
+							            }
+
+							            return isValid;
+							        }
+
+							        function updateParams() {
+							            if (!validateParams()) {
+							                return;
+							            }
+
+							            const params = {
+							                center_freq: parseFloat($('#centerFreq').val()) * 1e6,
+							                sample_rate: parseFloat($('#sampleRate').val()) * 1e6,
+							                gain: $('#gain').val()
+							            };
+
+							            $('#updateParams').prop('disabled', true);
+							            showLoading(true);
+
+							            fetch('/update_params', {
+							                method: 'POST',
+							                headers: {
+							                    'Content-Type': 'application/json'
+							                },
+							                body: JSON.stringify(params)
+							            })
+							            .then(response => {
+							                if (!response.ok) {
+							                    throw new Error(`HTTP error! status: ${response.status}`);
+							                }
+							                return response.json();
+							            })
+							            .then(data => {
+							                if (data.status === 'success') {
+							                    showUpdateSuccess('Parametri aggiornati con successo');
+							                } else {
+							                    showUpdateError('Errore nell\'aggiornamento dei parametri');
+							                }
+							            })
+							            .catch(error => {
+							                console.error('Error updating parameters:', error);
+							                showUpdateError('Errore di comunicazione con il server');
+							            })
+							            .finally(() => {
+							                $('#updateParams').prop('disabled', false);
+							                showLoading(false);
+							            });
+							        }
+
+							        function showUpdateSuccess(message) {
+							            const statusEl = $('#updateStatus');
+							            statusEl.html(`<div class="alert alert-success">${message}</div>`);
+							            setTimeout(() => statusEl.empty(), 3000);
+							        }
+
+							        function showUpdateError(message) {
+							            const statusEl = $('#updateStatus');
+							            statusEl.html(`<div class="alert alert-danger">${message}</div>`);
+							            setTimeout(() => statusEl.empty(), 5000);
+							        }
+
+							        function startUpdates() {
+							            if (!updateInterval) {
+							                updateInterval = setInterval(updateCharts, 100);
+							            }
+							        }
+
+							        function stopUpdates() {
+							            if (updateInterval) {
+							                clearInterval(updateInterval);
+							                updateInterval = null;
+							            }
+							        }
+
+							        function setupEventListeners() {
+							            $('#updateParams').click(updateParams);
+
+							            // Gestione della selezione sulla chart dello spettro
+							            let isSelecting = false;
+							            let selectionStart = null;
+
+							            $('#spectrumChart').on('mousedown touchstart', function(e) {
+							                isSelecting = true;
+							                selectionStart = getEventX(e);
+							            });
+
+							            $(document).on('mousemove touchmove', function(e) {
+							                if (isSelecting) {
+							                    const currentX = getEventX(e);
+							                    // Aggiorna la selezione visiva
+							                    updateSelectionOverlay(selectionStart, currentX);
+							                }
+							            });
+
+							            $(document).on('mouseup touchend', function(e) {
+							                if (isSelecting) {
+							                    isSelecting = false;
+							                    const endX = getEventX(e);
+							                    analyzeSelectedRegion(selectionStart, endX);
+							                }
+							            });
+
+							            // Gestione del resize della finestra
+							            let resizeTimeout;
+							            $(window).resize(function() {
+							                clearTimeout(resizeTimeout);
+							                resizeTimeout = setTimeout(function() {
+							                    Plotly.Plots.resize('spectrumChart');
+							                    Plotly.Plots.resize('iqTimeChart');
+							                    Plotly.Plots.resize('iqConstellation');
+							                }, 100);
+							            });
+							        }
+
+							        function getEventX(event) {
+							            const plot = document.getElementById('spectrumChart');
+							            const rect = plot.getBoundingClientRect();
+							            const x = event.type.startsWith('touch') ? 
+							                     event.touches[0].clientX : event.clientX;
+							            return x - rect.left;
+							        }
+
+							        function updateSelectionOverlay(start, end) {
+							            // Implementare la visualizzazione dell'overlay di selezione
+							            // Questo può essere fatto usando Plotly.relayout per aggiungere shapes
+							            const xrange = [
+							                Plotly.d3.select('#spectrumChart').data()[0].x[Math.min(start, end)],
+							                Plotly.d3.select('#spectrumChart').data()[0].x[Math.max(start, end)]
+							            ];
+
+							            Plotly.relayout('spectrumChart', {
+							                shapes: [{
+							                    type: 'rect',
+							                    xref: 'x',
+							                    yref: 'paper',
+							                    x0: xrange[0],
+							                    x1: xrange[1],
+							                    y0: 0,
+							                    y1: 1,
+							                    fillcolor: '#7f7f7f',
+							                    opacity: 0.2,
+							                    line: {
+							                        width: 0
+							                    }
+							                }]
+							            });
+							        }
+
+							        function analyzeSelectedRegion(start, end) {
+							            const data = {
+							                start_freq: Math.min(start, end),
+							                end_freq: Math.max(start, end)
+							            };
+
+							            fetch('/analyze_signal', {
+							                method: 'POST',
+							                headers: {
+							                    'Content-Type': 'application/json'
+							                },
+							                body: JSON.stringify(data)
+							            })
+							            .then(response => response.json())
+							            .then(data => {
+							                if (data.error) {
+							                    showUpdateError(data.error);
+							                } else {
+							                    updateSignalInfo(data);
+							                }
+							            })
+							            .catch(error => {
+							                console.error('Error analyzing signal:', error);
+							                showUpdateError('Errore nell\'analisi del segnale');
+							            });
+							        }
+
+							        // Inizializzazione all'avvio
+							        $(document).ready(function() {
+							            initCharts();
+							            setupEventListeners();
+							            startUpdates();
+							        });
+							    </script>
+							</body>
+							</html>
