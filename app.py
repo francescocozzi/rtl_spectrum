@@ -343,33 +343,50 @@ class SDRHandler:
             time.sleep(0.005 if self.data['center_freq'] < 300e6 else 0.01)
 
     def get_data(self):
-        with self.data_lock:
-            data = {
-                'frequencies': self.data['frequencies'],
-                'powers': self.data['powers'],
-                'iq_data': self.data['iq_data'],
-                'current_settings': {
-                    'center_freq': self.sdr.center_freq / 1e6 if self.sdr else 0,
-                    'sample_rate': self.sdr.sample_rate / 1e6 if self.sdr else 0,
-                    'gain': self.sdr.gain if self.sdr else 'auto'
-                }
-            }
-        
-            signal_info = self.classifier.analyze_signal(
-                self.data['frequencies'],
-                self.data['powers'],
-                self.data['iq_data']
-            )
-        
-            if signal_info:
-                data['signal_info'] = {
-                    'modulation': signal_info.modulation_type,
-                    'bandwidth': signal_info.bandwidth,
-                    'peak_power': signal_info.peak_power,
-                    'confidence': signal_info.confidence
+        try:
+            with self.data_lock:
+                data = {
+                    'frequencies': self.data['frequencies'],
+                    'powers': self.data['powers'],
+                    'iq_data': self.data['iq_data'],
+                    'current_settings': {
+                        'center_freq': self.sdr.center_freq / 1e6 if self.sdr else 0,
+                        'sample_rate': self.sdr.sample_rate / 1e6 if self.sdr else 0,
+                        'gain': self.sdr.gain if self.sdr else 'auto'
+                    }
                 }
             
-            return data
+                print("Dati base recuperati")
+                print(f"Lunghezza frequencies: {len(self.data['frequencies'])}")
+                print(f"Lunghezza powers: {len(self.data['powers'])}")
+            
+                try:
+                    signal_info = self.classifier.analyze_signal(
+                        self.data['frequencies'],
+                        self.data['powers'],
+                        self.data['iq_data']
+                    )
+                    print("Analisi del segnale completata")
+                
+                    if signal_info:
+                        data['signal_info'] = {
+                            'modulation': signal_info.modulation_type,
+                            'bandwidth': float(signal_info.bandwidth),
+                            'peak_power': float(signal_info.peak_power),
+                            'confidence': float(signal_info.confidence)
+                        }
+                        print("Info segnale aggiunto ai dati")
+                except Exception as e:
+                    print(f"Errore nell'analisi del segnale: {e}")
+                    data['signal_info'] = None
+            
+                return data
+            
+        except Exception as e:
+            print(f"Errore generale in get_data: {e}")
+            return {
+                'error': f'Errore nel recupero dei dati: {str(e)}'
+            }
 
 
     def cleanup(self):
