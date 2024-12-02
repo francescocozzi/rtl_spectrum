@@ -92,8 +92,8 @@ class SDRHandler:
         except Exception as e:
             print(f"Errore nel recupero del dispositivo: {e}")
             return False
-            
-def update_params(self, params):
+
+    def update_params(self, params):
         if not self.sdr:
             return False
             
