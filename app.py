@@ -92,6 +92,72 @@ class SDRHandler:
         except Exception as e:
             print(f"Errore nel recupero del dispositivo: {e}")
             return False
+            
+def update_params(self, params):
+        if not self.sdr:
+            return False
+            
+        if self.recovery_event.is_set():
+            return False
+            
+        with self.sdr_lock:
+            try:
+                print(f"Ricevuti parametri: {params}")
+                
+                old_params = {
+                    'center_freq': self.sdr.center_freq,
+                    'sample_rate': self.sdr.sample_rate,
+                    'gain': self.sdr.gain
+                }
+                
+                if 'center_freq' in params:
+                    new_freq = float(params['center_freq'])
+                    self.sdr.center_freq = new_freq
+                    self.data['center_freq'] = new_freq
+                    print(f"Frequenza aggiornata a: {new_freq/1e6} MHz")
+                    
+                if 'sample_rate' in params:
+                    new_rate = float(params['sample_rate'])
+                    self.sdr.sample_rate = new_rate
+                    self.data['sample_rate'] = new_rate
+                    print(f"Sample rate aggiornato a: {new_rate/1e6} MS/s")
+                    
+                if 'gain' in params:
+                    new_gain = params['gain']
+                    if new_gain == 'auto':
+                        if self.data['center_freq'] < 300e6:
+                            self.sdr.gain = 15  # Gain più basso per VHF
+                        else:
+                            self.sdr.gain = 20  # Gain standard per UHF
+                    else:
+                        new_gain = float(new_gain)
+                        # Limita il gain in base alla banda
+                        if self.data['center_freq'] < 300e6:
+                            new_gain = min(new_gain, 30)
+                        else:
+                            new_gain = min(max(new_gain, 0), 40)
+                        self.sdr.gain = new_gain
+                    self.data['gain'] = new_gain
+                    print(f"Gain aggiornato a: {new_gain}")
+                
+                time.sleep(0.1)
+                
+                with self.data_lock:
+                    if hasattr(self, 'avg_buffer'):
+                        self.avg_buffer = []
+                    
+                return True
+                    
+            except Exception as e:
+                try:
+                    self.sdr.center_freq = old_params['center_freq']
+                    self.sdr.sample_rate = old_params['sample_rate']
+                    self.sdr.gain = old_params['gain']
+                except:
+                    pass
+                    
+                print(f"Errore nell'aggiornamento dei parametri: {e}")
+                return False
 
     def update_spectrum(self):
         samples_size = 256 if self.data['center_freq'] < 300e6 else 512
