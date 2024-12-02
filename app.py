@@ -50,10 +50,48 @@ class SDRHandler:
             raise
 
     def _configure_sdr(self):
-        # ... [resto del codice _configure_sdr rimane uguale] ...
+        if not self.sdr:
+            return False
+        
+        try:
+            with self.sdr_lock:
+                self.sdr.sample_rate = self.data['sample_rate']
+                self.sdr.center_freq = self.data['center_freq']
+                
+                # Gestione gain dinamica basata sulla frequenza
+                if self.data['gain'] == 'auto':
+                    if self.data['center_freq'] < 300e6:  # Per VHF
+                        self.sdr.gain = 15  # Gain più basso per VHF
+                    else:  # Per UHF
+                        self.sdr.gain = 20
+                else:
+                    gain_value = float(self.data['gain'])
+                    # Limita il gain massimo in VHF
+                    if self.data['center_freq'] < 300e6:
+                        gain_value = min(gain_value, 30)
+                    self.sdr.gain = gain_value
+                
+                time.sleep(0.1)
+            return True
+        except Exception as e:
+            print(f"Errore nella configurazione SDR: {e}")
+            return False
 
     def _recover_device(self):
-        # ... [resto del codice _recover_device rimane uguale] ...
+        """Tenta di recuperare il dispositivo in caso di blocco"""
+        print("Tentativo di recupero del dispositivo...")
+        try:
+            with self.sdr_lock:
+                self.sdr.close()
+                time.sleep(1)
+                self.sdr = RtlSdr()
+                self._configure_sdr()
+                self.consecutive_errors = 0
+                print("Dispositivo recuperato con successo")
+                return True
+        except Exception as e:
+            print(f"Errore nel recupero del dispositivo: {e}")
+            return False
 
     def update_spectrum(self):
         samples_size = 256 if self.data['center_freq'] < 300e6 else 512
